@@ -1,0 +1,27 @@
+﻿"key";"cs";"de";"en";"es";"fa";"fr";"it";"ja";"nl";"pl";"pt_BR";"ru";"sk";"sv";"sv_FI";"tr";"zh_Hans";"th";"uk"
+"custommaintenance.active";"";"Aktiv";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.adminpriority";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.always";"";"Immer";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.automatic";"";"Automatisch";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.datum_bis";"";"Datum bis";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.datum_von";"";"Datum von";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.fixed";"";"Vorrang für Einstellung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.fixed.helptext";"";"Sollen externe Akteure die Einstellungen für &quot;Aktiv&quot; verändern dürfen?";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.frontend";"";"Frontend";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.frontend_hinweis";"";"Hinweis im Frontend";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.frontend_more";"";"Mehr-Link im Frontend";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.fulltimeformat";"";"Zeitformat";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.hinweis_zeigen";"";"Hinweis anzeigen";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.inactive";"";"Inaktiv";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.indication_current";"";"Gegenwärtige Wartung zeigen";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.indication_upcoming";"";"Kommende Wartung zeigen";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.info_document";"";"Info Dokument";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.is_fixed";"";"Einstellung hat Vorrang";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.is_not_fixed";"";"Einstellung darf verändert werden";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.manualmode";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.never";"";"Niemals";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.pimcore";"";"Pimcore";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.display";"";"Anzeige";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.timecontrol";"";"Zeitsteuerung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance_adminpanel_save";"";"Adminpanel speichern";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance_adminpanel_save_success";"";"Speicher erfolgreich";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""

@@ -1,0 +1,9 @@
+div.custommaintenance.custommaintenance_current, div.custommaintenance.custommaintenance_upcoming {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 10px;
+    text-align: center;
+}

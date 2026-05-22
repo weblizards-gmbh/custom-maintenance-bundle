@@ -3,6 +3,8 @@ This bundle let's you schedule Pimcore- and Custom Maintenances of userdefined t
 The information, if a maintenance is scheduled or in progress can be displayed to the use.
 Additionally, you can use this information in your code and e.g. prevent the user from logging
 in or adding items to a cart.
+
+*This bundle ist currently suitable only for pimcore 10.*
   
 # Install the bundle
 ```bash

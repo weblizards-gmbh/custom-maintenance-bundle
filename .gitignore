@@ -1,4 +1,5 @@
 .idea
+.phpunit.cache
 
 # PHP-CS-Fixer
 /.php-cs-fixer.php

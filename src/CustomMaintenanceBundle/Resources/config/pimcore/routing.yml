@@ -1,4 +1,4 @@
-weblizards_commerce_xml:
+weblizards_custom_maintenance:
     resource: "@WeblizardsCustomMaintenanceBundle/Controller/"
     type:     annotation
     prefix:   /admin/weblizards_custom_maintenance

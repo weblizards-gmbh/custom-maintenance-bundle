@@ -1,86 +1,65 @@
-# Entwicklung & Testen des CustomMaintenanceBundles
+# Entwicklung und Testen des Custom Maintenance Bundles
 
-Dieses Dokument beschreibt, wie das Bundle während der Entwicklung getestet und in einer lokalen Pimcore-Umgebung geprüft werden kann.
+Dieses Dokument beschreibt den tatsaechlichen Entwicklungs- und Testweg fuer das Bundle im aktuellen Repository-Zustand.
 
-## 1. Lokale Tests (Unit & Integration)
+## Automatisierte Tests
 
-Das Bundle enthält bereits einige Tests im Verzeichnis `tests/`. Diese können aktuell als einfache PHP-Skripte ausgeführt werden.
+Die Testausfuehrung ist auf PHPUnit ausgelegt.
 
-### Ausführung der vorhandenen Tests
 ```bash
-php tests/tag_injection_service_test.php
-php tests/html_insertion_test.php
+composer test
 ```
 
-### Empfehlung: PHPUnit nutzen
-Um professionell zu testen, sollte PHPUnit verwendet werden. Da Pimcore selbst PHPUnit nutzt, bietet es sich an, eine `phpunit.xml.dist` im Root-Verzeichnis des Bundles zu erstellen.
+oder direkt:
 
-#### Beispiel `phpunit.xml.dist`:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.5/phpunit.xsd"
-         bootstrap="vendor/autoload.php"
-         colors="true">
-    <testsuites>
-        <testsuite name="CustomMaintenanceBundle Test Suite">
-            <directory>tests</directory>
-        </testsuite>
-    </testsuites>
-</phpunit>
+```bash
+vendor/bin/phpunit
 ```
 
----
+Die PHPUnit-Konfiguration liegt in `phpunit.xml.dist`. Tests gehoeren unter `tests/`.
 
-## 2. Integration in eine Pimcore-Installation (Symlink-Methode)
+## Lokale Einbindung in eine Pimcore-Instanz
 
-Um das Bundle "live" in einer Pimcore-Instanz zu testen, ohne es jedes Mal auf Packagist hochladen zu müssen, empfiehlt sich die Nutzung von Composer mit einem **Path Repository**.
+Fuer die Entwicklung bietet sich ein Composer Path Repository an, damit das Bundle per Symlink in einer Pimcore-Installation laeuft.
 
-### Schritt-für-Schritt Anleitung:
+Beispiel fuer die `composer.json` des Pimcore-Projekts:
 
-1.  **Pimcore Projekt vorbereiten**:
-    Erstellen Sie eine neue Pimcore-Instanz oder nutzen Sie eine bestehende.
-
-2.  **Repository zum `composer.json` des Pimcore-Projekts hinzufügen**:
-    Fügen Sie den Pfad zu Ihrem lokalen Bundle-Verzeichnis hinzu:
-
-    ```json
+```json
+{
     "repositories": [
         {
             "type": "path",
-            "url": "../pfad/zu/deinem/custom-maintenance-bundle",
+            "url": "../custom-maintenance-bundle",
             "options": {
                 "symlink": true
             }
         }
     ]
-    ```
+}
+```
 
-3.  **Bundle installieren**:
-    Führen Sie im Pimcore-Projekt aus:
-    ```bash
-    composer require weblizards/custom-maintenance-bundle:@dev
-    ```
-    Composer erstellt nun einen Symlink in den `vendor/`-Ordner. Änderungen am Code im Bundle-Verzeichnis sind sofort in der Pimcore-Instanz wirksam.
+Danach im Pimcore-Projekt:
 
-4.  **Bundle aktivieren**:
-    ```bash
-    bin/console pimcore:bundle:enable WeblizardsCustomMaintenanceBundle
-    ```
+```bash
+composer require weblizards/custom-maintenance-bundle:@dev
+bin/console pimcore:bundle:enable WeblizardsCustomMaintenanceBundle
+bin/console pimcore:bundle:install WeblizardsCustomMaintenanceBundle
+bin/console assets:install public --symlink
+```
 
-5.  **Assets verlinken (falls vorhanden)**:
-    Falls das Bundle CSS/JS für das Pimcore Backend mitbringt:
-    ```bash
-    bin/console assets:install public --symlink
-    ```
+## Manuelle Verifikation
 
----
+Nach Installation und Aktivierung sollten mindestens diese Punkte geprueft werden:
 
-## 3. Manuelles Prüfen der Funktionalität
+1. Bundle erscheint in der Pimcore-Bundle-Verwaltung und laesst sich installieren.
+2. Das Admin-Menue zeigt den Eintrag `Custom Maintenance`.
+3. Das Admin-Panel laedt unter `/admin/weblizards_custom_maintenance/adminpanel/load`.
+4. Das Speichern ueber `/admin/weblizards_custom_maintenance/adminpanel/save` schreibt die Legacy-Konfiguration weiterhin ohne offensichtliche Fehler.
+5. Twig-Funktionen wie `indicateCustomMaintenance()` und `isMaintenanceActive()` sind im Host-Projekt aufrufbar.
+6. Der Command `weblizards:custommaintenance:control` ist vorhanden und liefert erwartbare Ausgaben fuer `list-tokens` und `show-status`.
 
-Nach der Installation und Aktivierung:
+## Wichtige Hinweise
 
-1.  **Backend**: Prüfen Sie, ob unter **Einstellungen > Tag & Snippet Management** die Oberfläche erscheint.
-2.  **Konfiguration**: Erstellen Sie einen Test-Tag (z.B. ein einfaches `<script>console.log('Test');</script>`) für eine bestimmte URL.
-3.  **Frontend**: Rufen Sie die entsprechende Seite im Frontend auf und prüfen Sie im Quelltext oder in der Browser-Konsole, ob das Snippet korrekt eingefügt wurde.
-4.  **Logs**: Achten Sie auf `var/log/dev.log` in Ihrer Pimcore-Instanz bei Fehlern.
+- Die aktuelle Persistenzbasis ist noch die Legacy-Datei `PIMCORE_PRIVATE_VAR . '/config/custommaintenance.php'`.
+- Die geplante Rolling-Migration auf Pimcore Settings Store gehoert zu spaeteren Stories und ist in diesem Dokument deshalb noch nicht beschrieben.
+- Admin-UI-Tests sind wegen der Legacy-ExtJS-Oberflaeche derzeit primaer manuell sinnvoll; Backend- und Service-Logik sollten bevorzugt automatisiert abgesichert werden.

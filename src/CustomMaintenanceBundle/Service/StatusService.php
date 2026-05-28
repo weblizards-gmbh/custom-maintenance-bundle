@@ -108,7 +108,6 @@ class StatusService
             }
 
             $cm = $this->getConfigForToken($token);
-            dump($cm);;
             if (self::STATUS_ACTIVE == $cm['active'] || $this->isTimeslotEntered($token)) {
                 $result = true;
 

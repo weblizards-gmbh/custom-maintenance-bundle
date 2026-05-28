@@ -36,6 +36,13 @@
             "Weblizards\\CustomMaintenanceBundle\\Test\\": "tests"
         }
     },
+    "extra": {
+        "pimcore": {
+            "bundles": [
+                "Weblizards\\CustomMaintenanceBundle\\WeblizardsCustomMaintenanceBundle"
+            ]
+        }
+    },
     "scripts": {
         "test": "vendor/bin/phpunit"
     },

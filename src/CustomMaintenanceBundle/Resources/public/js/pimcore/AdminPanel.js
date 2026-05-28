@@ -243,8 +243,6 @@ custommaintenance.AdminPanel = Class.create({
             for (var i=0; i<this.data["tokens"].length; i++) {
                 var token = this.data["tokens"][i];
                 var config = this.data["custom"][token];
-                console.log(token);
-                console.log(config);
                 var fieldset = new Ext.form.FieldSet({
                     xtype: 'fieldset',
                     title: config["description"],

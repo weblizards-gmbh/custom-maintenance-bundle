@@ -1,5 +1,5 @@
 # generated: 2026-05-27T13:43:51+0200
-# last_updated: 2026-05-28T00:10:00+0200
+# last_updated: 2026-06-09T12:34:43+0200
 # project: Pimcore Custom Maintenance Bundle
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,20 +35,20 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-05-27T13:43:51+0200
-last_updated: 2026-05-28T00:10:00+0200
+last_updated: 2026-06-15T12:00:00+0200
 project: Pimcore Custom Maintenance Bundle
 project_key: NOKEY
 tracking_system: file-system
 story_location: '{project-root}/_bmad-output/implementation-artifacts'
 
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-bundle-basis-fuer-pimcore-10-6-9-konsolidieren: done
-  1-2-kanonisches-domain-modell-fuer-maintenance-konfiguration-einfuehren: backlog
-  1-3-settings-store-persistenz-mit-legacy-read-fallback-einfuehren: backlog
-  1-4-rolling-migration-fuer-bestehende-installationen-absichern-und-dokumentieren: backlog
-  1-5-opportunistische-pimcore-10-deprecations-im-basisschnitt-mitbehandeln: backlog
-  epic-1-retrospective: optional
+  1-2-kanonisches-domain-modell-fuer-maintenance-konfiguration-einfuehren: done
+  1-3-settings-store-persistenz-mit-legacy-read-fallback-einfuehren: done
+  1-4-rolling-migration-fuer-bestehende-installationen-absichern-und-dokumentieren: done
+  1-5-opportunistische-pimcore-10-deprecations-im-basisschnitt-mitbehandeln: done
+  epic-1-retrospective: done
   epic-2: backlog
   2-1-maintenance-arten-aus-der-kanonischen-konfiguration-im-admin-ui-darstellen: backlog
   2-2-neue-custom-maintenance-art-mit-defaults-anlegen: backlog

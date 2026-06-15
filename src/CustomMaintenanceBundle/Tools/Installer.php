@@ -7,7 +7,9 @@ namespace Weblizards\CustomMaintenanceBundle\Tools;
 use Pimcore\Extension\Bundle\Installer\AbstractInstaller;
 use Pimcore\Extension\Bundle\Installer\InstallerInterface;
 use Pimcore\Model\Translation;
+use Pimcore\Model\Tool\SettingsStore;
 use Pimcore\Tool;
+use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\SettingsStorePersistenceAdapter;
 
 class Installer extends AbstractInstaller implements InstallerInterface
 {
@@ -33,8 +35,12 @@ class Installer extends AbstractInstaller implements InstallerInterface
 
     public function isInstalled(): bool
     {
+        if ($this->hasSettingsStoreConfig()) {
+            return true;
+        }
+
         foreach ($this->files as $file) {
-            if (!file_exists($file['target'])) {
+            if (!$this->fileExists($file['target'])) {
                 return false;
             }
         }
@@ -80,10 +86,20 @@ class Installer extends AbstractInstaller implements InstallerInterface
         foreach ($this->files as $file) {
             $target = $file['target'];
             $source = $file['source'];
-            if (!file_exists($target)) {
+            if (!$this->fileExists($target)) {
                 copy($source, $target);
             }
         }
+    }
+
+    protected function hasSettingsStoreConfig(): bool
+    {
+        return SettingsStore::get(SettingsStorePersistenceAdapter::KEY, SettingsStorePersistenceAdapter::SCOPE) !== null;
+    }
+
+    protected function fileExists(string $path): bool
+    {
+        return file_exists($path);
     }
 
     public function needsReloadAfterInstall(): bool

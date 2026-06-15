@@ -14,13 +14,24 @@ Anschliessend das Bundle in Pimcore aktivieren und installieren.
 
 ## Konfiguration
 
-Die Legacy-Konfiguration liegt derzeit unter:
+Die kanonische Persistenz liegt seit der Pimcore-10-Modernisierung im Pimcore Settings Store.
+
+Rolling-Migration-Verhalten:
+
+- Lesend: `Settings Store -> Legacy-PHP-Datei -> Default`
+- Schreibend: immer `Settings Store`
+- Sichtbar fuer Administratoren: keine separate Migrationsaktion im UI
+- Legacy-Datei: nur Read-Fallback fuer bestehende Installationen oder initiale Installationsdefaults
+
+Die Legacy-Datei liegt weiterhin unter:
 
 ```text
-/var/config/custommaintenance.php
+PIMCORE_PRIVATE_VAR . '/config/custommaintenance.php'
 ```
 
-Die Struktur basiert auf einem nativen `pimcore`-Block und beliebigen Eintraegen unter `custom`.
+Wenn weder Settings Store noch Legacy-Datei Bundle-Konfiguration enthalten, erzeugt das Bundle einen konservativen Default nur mit der nativen `pimcore`-Maintenance; es werden keine weiteren Custom-Maintenance-Arten implizit angelegt.
+
+Die fachliche Struktur basiert auf einem nativen `pimcore`-Block und beliebigen Eintraegen unter `custom`.
 
 Beispiel:
 
@@ -142,3 +153,4 @@ Optional:
 
 - PHPUnit ist ueber `composer test` bzw. `vendor/bin/phpunit` vorgesehen.
 - Hinweise zur lokalen Pimcore-Einbindung und Verifikation stehen in [docs/development_testing.md](docs/development_testing.md).
+- Fuer bestehende Installationen ist keine manuelle Datenmigration erforderlich; beim ersten erfolgreichen Schreibvorgang wird der kanonische Stand in den Settings Store geschrieben.

@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Weblizards\CustomMaintenanceBundle\Service;
 
 use Carbon\Carbon;
+use Weblizards\CustomMaintenanceBundle\Domain\Model\MaintenanceEntry;
 use Pimcore\Twig\Extension\Templating\HeadLink;
 use Twig\Environment;
 use Weblizards\CustomMaintenanceBundle\Config;
-use Weblizards\CustomMaintenanceBundle\Config as CustomMaintenanceConfig;
 
 class StatusService
 {
@@ -16,13 +16,13 @@ class StatusService
 
     public const STATUS_INACTIVE = 'false';
 
-    private CustomMaintenanceConfig $config;
+    private MaintenanceConfigManager $configManager;
 
     private HeadLink $headLink;
 
-    public function __construct(CustomMaintenanceConfig $config, HeadLink $headLink)
+    public function __construct(MaintenanceConfigManager $configManager, HeadLink $headLink)
     {
-        $this->config = $config;
+        $this->configManager = $configManager;
         $this->headLink = $headLink;
         $headLink->appendStylesheet('/bundles/weblizardscustommaintenance/css/frontend.css');
     }
@@ -34,9 +34,7 @@ class StatusService
      */
     public function getValidTokens(): array
     {
-        $config = $this->config->getData();
-
-        return array_keys($config['custom']);
+        return $this->configManager->getConfigSet()->getCustomTokens();
     }
 
     /**
@@ -62,10 +60,7 @@ class StatusService
             throw new \Exception('Invalid status: ' . $status);
         }
 
-        $config = $this->config->getData();
-        $config['custom'][$token]['active'] = $status;
-        $this->config->setData($config);
-        $this->config->save();
+        $this->configManager->setCustomStatus($token, $status);
     }
 
     /**
@@ -77,9 +72,7 @@ class StatusService
             throw new \Exception('Invalid token: ' . $token);
         }
 
-        $config = $this->config->getData();
-
-        return $config['custom'][$token]['active'];
+        return $this->getMaintenanceEntry($token)->getActiveStatus();
     }
 
     /**
@@ -96,7 +89,7 @@ class StatusService
                 $tokens = [$token];
             }
         } else {
-            $tokens = $this->config->getAllTokens();
+            $tokens = $this->configManager->getConfigSet()->getAllTokens();
         }
 
         $result = false;
@@ -107,8 +100,8 @@ class StatusService
                 continue;
             }
 
-            $cm = $this->getConfigForToken($token);
-            if (self::STATUS_ACTIVE == $cm['active'] || $this->isTimeslotEntered($token)) {
+            $entry = $this->getMaintenanceEntry($token);
+            if ($entry->isMarkedActive() || $this->isTimeslotEntered($entry)) {
                 $result = true;
 
                 break;
@@ -123,9 +116,7 @@ class StatusService
      */
     public function isFixedMode(string $token): bool
     {
-        $cm = $this->getConfigForToken($token);
-
-        return array_key_exists('fixed', $cm) && self::STATUS_ACTIVE == $cm['fixed'];
+        return $this->getMaintenanceEntry($token)->isFixedMode();
     }
 
     /**
@@ -135,11 +126,13 @@ class StatusService
      */
     public function isHandsOff(string $token): bool
     {
-        if ($this->isFixedMode($token)) {
+        $entry = $this->getMaintenanceEntry($token);
+
+        if ($entry->isFixedMode()) {
             return true;
         }
 
-        return (bool) $this->isTimeslotEntered($token);
+        return $this->isTimeslotEntered($entry);
     }
 
     /**
@@ -147,11 +140,11 @@ class StatusService
      */
     public function showUpcoming(string $token): bool
     {
-        $cm = $this->getConfigForToken($token);
+        $noticeConfig = $this->getMaintenanceEntry($token)->getNoticeConfig();
 
         $result = false;
 
-        switch ($cm['show_info']) {
+        switch ($noticeConfig->getShowInfo()) {
             case 'always':
                 $result = true;
 
@@ -164,7 +157,7 @@ class StatusService
 
             case 'automatic':
                 $now = Carbon::now();
-                $from = $this->toCarbon($cm['show_info_from']);
+                $from = $noticeConfig->getShowInfoFrom()->toCarbon();
                 $result = $now->greaterThan($from);
 
                 break;
@@ -180,9 +173,7 @@ class StatusService
      */
     public function getDocumentPath(string $token)
     {
-        $cm = $this->getConfigForToken($token);
-
-        return $cm['document'];
+        return $this->getMaintenanceEntry($token)->getNoticeConfig()->getDocument();
     }
 
     /**
@@ -190,9 +181,7 @@ class StatusService
      */
     public function getMaintenanceFrom(string $token): Carbon
     {
-        $cm = $this->getConfigForToken($token);
-
-        return $this->toCarbon($cm['planned']['from']);
+        return $this->getMaintenanceEntry($token)->getSchedule()->getFrom()->toCarbon();
     }
 
     /**
@@ -200,9 +189,7 @@ class StatusService
      */
     public function getMaintenanceTo(string $token): Carbon
     {
-        $cm = $this->getConfigForToken($token);
-
-        return $this->toCarbon($cm['planned']['to']);
+        return $this->getMaintenanceEntry($token)->getSchedule()->getTo()->toCarbon();
     }
 
     /**
@@ -210,17 +197,7 @@ class StatusService
      */
     public function getConfigForToken(string $token): array
     {
-        $config = $this->config->getData();
-        if (Config::TOKEN_PIMCORE == $token) {
-            $cm = $config[Config::TOKEN_PIMCORE];
-        } else {
-            if (!array_key_exists($token, $config['custom'])) {
-                throw new \Exception('Invalid Token: ' . $token);
-            }
-            $cm = $config['custom'][$token];
-        }
-
-        return $cm;
+        return $this->getMaintenanceEntry($token)->toLegacyArray();
     }
 
     public function toCarbon(array $date_time): Carbon
@@ -247,7 +224,8 @@ class StatusService
     {
         $earliest = Carbon::now()->addDays(365);
         $upcoming = null;
-        $tokens = $this->config->getAllTokens();
+        $configSet = $this->configManager->getConfigSet();
+        $tokens = $configSet->getAllTokens();
 
         $now = Carbon::now();
         $output = '';
@@ -265,14 +243,14 @@ class StatusService
             }
 
             if ($upcoming) {
-                $config = $this->config->getData();
                 $from = $this->getMaintenanceFrom($upcoming);
                 $to = $this->getMaintenanceTo($upcoming);
-                $text = $config['frontend']['indication_upcoming']['de'];
+                $frontendConfig = $configSet->getFrontendConfig();
+                $text = $frontendConfig->getUpcomingMessage('de');
                 $message = sprintf(
                     $text,
-                    $from->format($config['frontend']['fulltimeformat']['de']),
-                    $to->format($config['frontend']['fulltimeformat']['de'])
+                    $from->format($frontendConfig->getFulltimeFormat('de')),
+                    $to->format($frontendConfig->getFulltimeFormat('de'))
                 );
 
                 $link = '';
@@ -280,7 +258,7 @@ class StatusService
                 if ($document_path) {
                     $link = [
                         'url' => $document_path,
-                        'caption' => $config['frontend']['more']['de'],
+                        'caption' => $frontendConfig->getMoreCaption('de'),
                     ];
                 }
 
@@ -298,7 +276,8 @@ class StatusService
 
     public function indicateCurrentMaintenance(Environment $engine): string
     {
-        $tokens = $this->config->getAllTokens();
+        $configSet = $this->configManager->getConfigSet();
+        $tokens = $configSet->getAllTokens();
 
         $earliest = Carbon::tomorrow();
         $current = null;
@@ -308,9 +287,9 @@ class StatusService
         try {
 
             foreach ($tokens as $token) {
-                $cm = $this->getConfigForToken($token);
+                $entry = $this->getMaintenanceEntry($token);
 
-                if ('never' != $cm['show_info'] && $this->isActive($token)) {
+                if ('never' != $entry->getNoticeConfig()->getShowInfo() && $this->isActive($token)) {
                     $from = $this->getMaintenanceFrom($token);
                     if ($from->lessThan($earliest)) {
                         $earliest = $from;
@@ -320,15 +299,15 @@ class StatusService
             }
 
             if ($current) {
-                $config = $this->config->getData();
                 $from = $this->getMaintenanceFrom($current);
                 $to = $this->getMaintenanceTo($current);
+                $frontendConfig = $configSet->getFrontendConfig();
 
-                $text = $config['frontend']['indication_current']['de'];
+                $text = $frontendConfig->getCurrentMessage('de');
                 $message = sprintf(
                     $text,
-                    $from->format($config['frontend']['fulltimeformat']['de']),
-                    $to->format($config['frontend']['fulltimeformat']['de'])
+                    $from->format($frontendConfig->getFulltimeFormat('de')),
+                    $to->format($frontendConfig->getFulltimeFormat('de'))
                 );
 
                 $link = '';
@@ -336,7 +315,7 @@ class StatusService
                 if ($document_path) {
                     $link = [
                         'url' => $document_path,
-                        'caption' => $config['frontend']['more']['de'],
+                        'caption' => $frontendConfig->getMoreCaption('de'),
                     ];
                 }
 
@@ -357,17 +336,23 @@ class StatusService
      *
      * @throws \Exception
      */
-    protected function isTimeslotEntered(string $token): bool
+    protected function isTimeslotEntered(MaintenanceEntry $entry): bool
     {
-        if (!in_array($token, $this->getValidTokens())) {
-            throw new \Exception("Invalid token: {$token}");
-        }
-
-        $cm = $this->getConfigForToken($token);
-
-        $from = $this->toCarbon($cm['planned']['from']);
-        $to = $this->toCarbon($cm['planned']['to']);
+        $from = $entry->getSchedule()->getFrom()->toCarbon();
+        $to = $entry->getSchedule()->getTo()->toCarbon();
 
         return Carbon::now()->between($from, $to);
+    }
+
+    /**
+     * @throws \Exception
+     */
+    private function getMaintenanceEntry(string $token): MaintenanceEntry
+    {
+        try {
+            return $this->configManager->getConfigSet()->getEntry($token);
+        } catch (\InvalidArgumentException $exception) {
+            throw new \Exception($exception->getMessage(), 0, $exception);
+        }
     }
 }

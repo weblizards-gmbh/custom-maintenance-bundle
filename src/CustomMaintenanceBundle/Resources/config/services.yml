@@ -28,10 +28,25 @@ services:
     Weblizards\CustomMaintenanceBundle\Config:
         public: true
 
+    Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\SettingsStorePersistenceAdapter: ~
+
+    Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyPhpConfigAdapter: ~
+
+    Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\PimcoreSettingsStoreGateway: ~
+
+    Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\SettingsStoreGatewayInterface:
+        alias: Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\PimcoreSettingsStoreGateway
+
+    Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface:
+        alias: Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\SettingsStorePersistenceAdapter
+
+    Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface:
+        alias: Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyPhpConfigAdapter
+
+    Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager: ~
+
     Weblizards\CustomMaintenanceBundle\Service\StatusService:
         public: true
-        arguments:
-            $config: "@Weblizards\\CustomMaintenanceBundle\\Config"
 
     Weblizards\CustomMaintenanceBundle\Twig\Extensions:
         public: true

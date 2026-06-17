@@ -339,8 +339,20 @@ custommaintenance.AdminPanel = Class.create({
     },
 
     save: function () {
+        this.persistAdminValues(this.getFormValues());
+    },
+
+    getFormValues: function (overrides) {
         var values = this.layout.getForm().getFieldValues();
 
+        if (!overrides) {
+            return values;
+        }
+
+        return Ext.apply(values, overrides);
+    },
+
+    persistAdminValues: function (values, onSuccess) {
         Ext.Ajax.request({
             url: "/admin/weblizards_custom_maintenance/adminpanel/save",
             method: "post",
@@ -351,11 +363,48 @@ custommaintenance.AdminPanel = Class.create({
                 try {
                     var res = Ext.decode(response.responseText);
                     pimcore.helpers.showNotification(res.title, res.message, res.type);
+                    if (res.success && onSuccess) {
+                        onSuccess();
+                    }
                 } catch(e) {
                     pimcore.helpers.showNotification(t("error"), t("custommaintenance_adminpanel_save_error"), "error");
                 }
             }
         });
+    },
+
+    removeCustomMaintenance: function (token, fieldset) {
+        var title = fieldset && fieldset.title ? fieldset.title : token;
+        var confirmTitle = this.translateWithFallback(
+            "custommaintenance.delete_confirm_title",
+            "Maintenance-Art loeschen"
+        );
+        var confirmMessage = this.translateWithFallback(
+            "custommaintenance.delete_confirm_message",
+            "Soll die Maintenance-Art \"%s\" wirklich geloescht werden?"
+        ).replace("%s", title);
+
+        Ext.Msg.confirm(confirmTitle, confirmMessage, function (button) {
+            if (button !== "yes") {
+                return;
+            }
+
+            var updatedTokens = this.data["tokens"].filter(function (currentToken) {
+                return currentToken !== token;
+            });
+            var values = this.getFormValues({
+                custom_tokens: updatedTokens.join(",")
+            });
+
+            this.persistAdminValues(values, function () {
+                this.data["tokens"] = updatedTokens;
+                delete this.data["custom"][token];
+                this.layout.remove(fieldset, true);
+                this.updateCustomTokensField();
+                this.layout.doLayout();
+                pimcore.layout.refresh();
+            }.bind(this));
+        }.bind(this));
     },
 
     buildNewCustomConfig: function () {
@@ -408,6 +457,20 @@ custommaintenance.AdminPanel = Class.create({
             xtype: "hidden",
             name: token + "_original_token",
             value: token
+        });
+        items.push({
+            xtype: "button",
+            text: this.translateWithFallback(
+                "custommaintenance.delete",
+                "Maintenance-Art loeschen"
+            ),
+            iconCls: "pimcore_icon_delete",
+            style: {
+                marginBottom: "10px"
+            },
+            handler: function () {
+                this.removeCustomMaintenance(token, fieldset);
+            }.bind(this)
         });
         items.push({
             xtype: "textfield",

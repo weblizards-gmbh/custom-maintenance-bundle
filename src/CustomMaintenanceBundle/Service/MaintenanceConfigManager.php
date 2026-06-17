@@ -110,7 +110,7 @@ final class MaintenanceConfigManager
         $data = $this->getCurrentRawData();
         $customTokenMap = $this->resolveCustomTokenMap($values, array_keys($data['custom']));
         $originalCustomData = $data['custom'];
-        $updatedCustomData = array_diff_key($originalCustomData, $customTokenMap);
+        $updatedCustomData = [];
 
         $data['frontend']['indication_upcoming']['de'] = (string) $values['frontend_indication_upcoming'];
         $data['frontend']['indication_current']['de'] = (string) $values['frontend_indication_current'];

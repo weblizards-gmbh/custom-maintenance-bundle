@@ -5,6 +5,9 @@
 "custommaintenance.automatic";"";"Automatisch";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
 "custommaintenance.datum_bis";"";"Datum bis";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
 "custommaintenance.datum_von";"";"Datum von";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.delete";"";"Maintenance-Art loeschen";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.delete_confirm_message";"";"Soll die Maintenance-Art ""%s"" wirklich geloescht werden?";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.delete_confirm_title";"";"Maintenance-Art loeschen";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.fixed";"";"Vorrang für Einstellung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.fixed.helptext";"";"Sollen externe Akteure die Einstellungen für &quot;Aktiv&quot; verändern dürfen?";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.frontend";"";"Frontend";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""

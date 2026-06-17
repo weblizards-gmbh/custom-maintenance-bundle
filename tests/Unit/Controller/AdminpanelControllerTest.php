@@ -22,6 +22,79 @@ final class AdminpanelControllerTest extends TestCase
         self::assertFalse(is_subclass_of(AdminpanelController::class, AdminController::class));
     }
 
+    public function testLoadActionReturnsCanonicalAdminDataFromConfigManager(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [
+                    'indication_upcoming' => [
+                        'de' => 'Store upcoming',
+                    ],
+                    'indication_current' => [
+                        'de' => 'Store current',
+                    ],
+                    'more' => [
+                        'de' => 'Mehr',
+                    ],
+                    'fulltimeformat' => [
+                        'de' => 'd.m.Y H:i',
+                    ],
+                ],
+                'pimcore' => [
+                    'show_info' => 'automatic',
+                    'show_info_from' => ['date' => '01.01.2026', 'time' => '08:30'],
+                    'planned' => [
+                        'from' => ['date' => '02.01.2026', 'time' => '09:00'],
+                        'to' => ['date' => '02.01.2026', 'time' => '11:00'],
+                    ],
+                    'document' => '/de/pimcore',
+                ],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'true',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'always',
+                        'show_info_from' => ['date' => '03.01.2026', 'time' => '08:00'],
+                        'planned' => [
+                            'from' => ['date' => '04.01.2026', 'time' => '10:00'],
+                            'to' => ['date' => '04.01.2026', 'time' => '12:00'],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+        $controller = new AdminpanelController();
+        $response = $controller->loadAction($configManager);
+        $payload = json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(['prices'], $payload['tokens']);
+        self::assertSame('Store upcoming', $payload['frontend']['indication_upcoming']['de']);
+        self::assertSame('Store current', $payload['frontend']['indication_current']['de']);
+        self::assertSame('Mehr', $payload['frontend']['more']['de']);
+        self::assertSame('d.m.Y H:i', $payload['frontend']['fulltimeformat']['de']);
+        self::assertSame('automatic', $payload['pimcore']['show_info']);
+        self::assertSame('01.01.2026', $payload['pimcore']['show_info_from']['date']);
+        self::assertSame('08:30', $payload['pimcore']['show_info_from']['time']);
+        self::assertSame('02.01.2026', $payload['pimcore']['planned']['from']['date']);
+        self::assertSame('11:00', $payload['pimcore']['planned']['to']['time']);
+        self::assertSame('/de/pimcore', $payload['pimcore']['document']);
+        self::assertSame('ERP', $payload['custom']['prices']['description']);
+        self::assertSame('true', $payload['custom']['prices']['active']);
+        self::assertSame('false', $payload['custom']['prices']['fixed']);
+        self::assertSame('03.01.2026', $payload['custom']['prices']['show_info_from']['date']);
+        self::assertSame('04.01.2026', $payload['custom']['prices']['planned']['from']['date']);
+        self::assertSame('12:00', $payload['custom']['prices']['planned']['to']['time']);
+        self::assertSame('/de/erp', $payload['custom']['prices']['document']);
+    }
+
     public function testSaveActionPersistsDecodedPayloadAndReturnsTranslatedSuccessMessage(): void
     {
         $persistedData = null;

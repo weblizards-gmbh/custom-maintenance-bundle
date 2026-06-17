@@ -1,6 +1,6 @@
 # Story 3.3: CLI-Steuerung auf die gemeinsame Status- und Konfigurationslogik ausrichten
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -159,3 +159,4 @@ GPT-5 Codex
 
 - 2026-06-17: Story 3.3 erstellt und auf `ready-for-dev` gesetzt.
 - 2026-06-17: CLI-Paritaet ueber reale Command-/Status-/Config-Tests abgesichert und Story auf `review` gesetzt.
+- 2026-06-17: Code-Review ohne Findings abgeschlossen und Story auf `done` gesetzt.

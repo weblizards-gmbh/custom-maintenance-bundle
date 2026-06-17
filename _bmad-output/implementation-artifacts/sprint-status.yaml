@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-05-27T13:43:51+0200
-last_updated: 2026-06-17T17:48:12+0200
+last_updated: 2026-06-17T18:29:26+0200
 project: Pimcore Custom Maintenance Bundle
 project_key: NOKEY
 tracking_system: file-system
@@ -56,8 +56,8 @@ development_status:
   2-4-native-pimcore-maintenance-im-ui-als-geschuetzten-sonderfall-behandeln: review
   2-5-custom-maintenance-arten-kontrolliert-loeschen: done
   epic-2-retrospective: optional
-  epic-3: backlog
-  3-1-manuellen-aktiv-inaktiv-status-ueber-die-neue-konfigurationsbasis-auswerten: backlog
+  epic-3: in-progress
+  3-1-manuellen-aktiv-inaktiv-status-ueber-die-neue-konfigurationsbasis-auswerten: done
   3-2-geplante-zeitfenster-in-die-statusbewertung-integrieren: backlog
   3-3-cli-steuerung-auf-die-gemeinsame-status-und-konfigurationslogik-ausrichten: backlog
   3-4-schutz-vor-ungewollter-rueckschaltung-beibehalten: backlog

@@ -14,6 +14,76 @@ use Weblizards\CustomMaintenanceBundle\Service\StatusService;
 
 final class StatusServiceTest extends TestCase
 {
+    public function testPlannedTimeslotActivatesMaintenanceWithinWindowEvenIfManualStatusIsInactive(): void
+    {
+        Carbon::setTestNow('2026-02-01 10:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_INACTIVE));
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+
+        self::assertSame(StatusService::STATUS_INACTIVE, $service->getStatus('prices'));
+        self::assertTrue($service->isActive('prices'));
+
+        Carbon::setTestNow();
+    }
+
+    public function testPlannedTimeslotDoesNotActivateMaintenanceOutsideWindow(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_INACTIVE));
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+
+        Carbon::setTestNow('2026-02-01 08:59');
+        self::assertFalse($service->isActive('prices'));
+
+        Carbon::setTestNow('2026-02-01 09:00');
+        self::assertTrue($service->isActive('prices'));
+
+        Carbon::setTestNow('2026-02-01 11:00');
+        self::assertTrue($service->isActive('prices'));
+
+        Carbon::setTestNow('2026-02-01 11:01');
+        self::assertFalse($service->isActive('prices'));
+
+        Carbon::setTestNow();
+    }
+
+    public function testConfiguredTimeslotFormatsRemainCompatibleWithBundleFormat(): void
+    {
+        Carbon::setTestNow('2026-02-01 10:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_INACTIVE));
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+
+        self::assertSame('01.02.2026 09:00', $service->getMaintenanceFrom('prices')->format('d.m.Y H:i'));
+        self::assertSame('01.02.2026 11:00', $service->getMaintenanceTo('prices')->format('d.m.Y H:i'));
+
+        Carbon::setTestNow();
+    }
+
     public function testManualActiveStatusIsEvaluatedFromCanonicalConfigOutsideTimeslot(): void
     {
         Carbon::setTestNow('2026-02-01 12:30');

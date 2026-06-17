@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace Weblizards\CustomMaintenanceBundle\Service;
 
 use Carbon\Carbon;
+use Weblizards\CustomMaintenanceBundle\Config;
 use Weblizards\CustomMaintenanceBundle\Domain\Model\FrontendConfig;
 use Weblizards\CustomMaintenanceBundle\Domain\Model\MaintenanceConfigSet;
 use Weblizards\CustomMaintenanceBundle\Domain\Model\MaintenanceEntry;
+use Weblizards\CustomMaintenanceBundle\Domain\Model\MaintenanceToken;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface;
-use Weblizards\CustomMaintenanceBundle\Config;
 
 final class MaintenanceConfigManager
 {
@@ -105,6 +106,7 @@ final class MaintenanceConfigManager
     public function saveFromAdminPayload(array $values): void
     {
         $data = $this->getCurrentRawData();
+        $customTokens = $this->resolveCustomTokens($values, array_keys($data['custom']));
 
         $data['frontend']['indication_upcoming']['de'] = (string) $values['frontend_indication_upcoming'];
         $data['frontend']['indication_current']['de'] = (string) $values['frontend_indication_current'];
@@ -120,18 +122,60 @@ final class MaintenanceConfigManager
         $data['pimcore']['planned']['to']['time'] = $this->convertJsDateTime((string) $values['pimcore_to_time'], 'time');
         $data['pimcore']['document'] = (string) $values['pimcore_document'];
 
-        foreach (array_keys($data['custom']) as $token) {
-            $data['custom'][$token]['active'] = (string) $values[$token . '_active'];
-            $data['custom'][$token]['fixed'] = (string) $values[$token . '_fixed'];
-            $data['custom'][$token]['description'] = (string) $values[$token . '_description'];
-            $data['custom'][$token]['show_info'] = (string) $values[$token . '_show_info'];
-            $data['custom'][$token]['show_info_from']['date'] = $this->convertJsDateTime((string) $values[$token . '_show_info_from_date'], 'date');
-            $data['custom'][$token]['show_info_from']['time'] = $this->convertJsDateTime((string) $values[$token . '_show_info_from_time'], 'time');
-            $data['custom'][$token]['planned']['from']['date'] = $this->convertJsDateTime((string) $values[$token . '_from_date'], 'date');
-            $data['custom'][$token]['planned']['from']['time'] = $this->convertJsDateTime((string) $values[$token . '_from_time'], 'time');
-            $data['custom'][$token]['planned']['to']['date'] = $this->convertJsDateTime((string) $values[$token . '_to_date'], 'date');
-            $data['custom'][$token]['planned']['to']['time'] = $this->convertJsDateTime((string) $values[$token . '_to_time'], 'time');
-            $data['custom'][$token]['document'] = (string) $values[$token . '_document'];
+        foreach ($customTokens as $token) {
+            if (!array_key_exists($token, $data['custom'])) {
+                $data['custom'][$token] = $this->createDefaultCustomEntry();
+            }
+
+            $data['custom'][$token]['active'] = $this->getPayloadValue(
+                $values,
+                $token . '_active',
+                (string) ($data['custom'][$token]['active'] ?? 'false')
+            );
+            $data['custom'][$token]['fixed'] = $this->getPayloadValue(
+                $values,
+                $token . '_fixed',
+                (string) ($data['custom'][$token]['fixed'] ?? 'false')
+            );
+            $data['custom'][$token]['description'] = $this->getPayloadValue(
+                $values,
+                $token . '_description',
+                (string) ($data['custom'][$token]['description'] ?? '')
+            );
+            $data['custom'][$token]['show_info'] = $this->getPayloadValue(
+                $values,
+                $token . '_show_info',
+                (string) ($data['custom'][$token]['show_info'] ?? 'never')
+            );
+            $data['custom'][$token]['show_info_from']['date'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $token . '_show_info_from_date'),
+                'date'
+            );
+            $data['custom'][$token]['show_info_from']['time'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $token . '_show_info_from_time'),
+                'time'
+            );
+            $data['custom'][$token]['planned']['from']['date'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $token . '_from_date'),
+                'date'
+            );
+            $data['custom'][$token]['planned']['from']['time'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $token . '_from_time'),
+                'time'
+            );
+            $data['custom'][$token]['planned']['to']['date'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $token . '_to_date'),
+                'date'
+            );
+            $data['custom'][$token]['planned']['to']['time'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $token . '_to_time'),
+                'time'
+            );
+            $data['custom'][$token]['document'] = $this->getPayloadValue(
+                $values,
+                $token . '_document',
+                (string) ($data['custom'][$token]['document'] ?? '')
+            );
         }
 
         $this->persistLegacyData($data);
@@ -195,6 +239,79 @@ final class MaintenanceConfigManager
         return $data;
     }
 
+    /**
+     * @param string[] $existingTokens
+     *
+     * @return string[]
+     */
+    private function resolveCustomTokens(array $values, array $existingTokens): array
+    {
+        if (!array_key_exists('custom_tokens', $values)) {
+            return $existingTokens;
+        }
+
+        $rawTokens = explode(',', (string) $values['custom_tokens']);
+        $tokens = [];
+        $seen = [];
+
+        foreach ($rawTokens as $rawToken) {
+            $token = trim($rawToken);
+            if ($token === '') {
+                continue;
+            }
+
+            if (array_key_exists($token, $seen)) {
+                throw new \InvalidArgumentException('Duplicate custom maintenance token: ' . $token);
+            }
+
+            if (!in_array($token, $existingTokens, true)) {
+                $newToken = MaintenanceToken::fromNewCustomToken($token);
+                if ($newToken->isPimcore()) {
+                    throw new \InvalidArgumentException('Custom maintenance token "pimcore" is reserved.');
+                }
+            }
+
+            $tokens[] = $token;
+            $seen[$token] = true;
+        }
+
+        return $tokens;
+    }
+
+    private function createDefaultCustomEntry(): array
+    {
+        return [
+            'active' => 'false',
+            'fixed' => 'false',
+            'description' => '',
+            'show_info' => 'never',
+            'show_info_from' => [
+                'date' => '',
+                'time' => '',
+            ],
+            'planned' => [
+                'from' => [
+                    'date' => '',
+                    'time' => '',
+                ],
+                'to' => [
+                    'date' => '',
+                    'time' => '',
+                ],
+            ],
+            'document' => '',
+        ];
+    }
+
+    private function getPayloadValue(array $values, string $key, string $default = ''): string
+    {
+        if (!array_key_exists($key, $values)) {
+            return $default;
+        }
+
+        return (string) $values[$key];
+    }
+
     private function convertJsDateTime(string $dateTime, string $target): string
     {
         $convertedDateTime = new Carbon($dateTime);
@@ -208,5 +325,14 @@ final class MaintenanceConfigManager
         }
 
         throw new \InvalidArgumentException('Invalid target');
+    }
+
+    private function convertOptionalJsDateTime(string $dateTime, string $target): string
+    {
+        if (trim($dateTime) === '') {
+            return '';
+        }
+
+        return $this->convertJsDateTime($dateTime, $target);
     }
 }

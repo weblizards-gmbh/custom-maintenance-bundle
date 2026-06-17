@@ -138,4 +138,65 @@ final class StatusServiceTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function testServiceHandlesEmptyScheduleValuesForNewCustomEntries(): void
+    {
+        Carbon::setTestNow('2026-02-01 10:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [
+                    'indication_upcoming' => ['de' => 'Upcoming %s %s'],
+                    'indication_current' => ['de' => 'Current %s %s'],
+                    'more' => ['de' => 'Mehr'],
+                    'fulltimeformat' => ['de' => 'd.m.Y H:i'],
+                ],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.2026', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.2026', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.2026', 'time' => '01:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [
+                    'search' => [
+                        'active' => StatusService::STATUS_INACTIVE,
+                        'fixed' => StatusService::STATUS_INACTIVE,
+                        'description' => 'Search',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '',
+                    ],
+                ],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $headLink = $this
+            ->getMockBuilder(HeadLink::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__call'])
+            ->getMock();
+        $headLink
+            ->expects(self::once())
+            ->method('__call')
+            ->with('appendStylesheet', ['/bundles/weblizardscustommaintenance/css/frontend.css']);
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $headLink);
+
+        self::assertFalse($service->isActive('search'));
+        self::assertFalse($service->isHandsOff('search'));
+        self::assertFalse($service->showUpcoming('search'));
+
+        Carbon::setTestNow();
+    }
 }

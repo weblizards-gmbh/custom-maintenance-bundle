@@ -28,6 +28,10 @@ final class MaintenanceDateTime
 
     public function toCarbon(): Carbon
     {
+        if (trim($this->date) === '' || trim($this->time) === '') {
+            return Carbon::createFromFormat('d.m.Y H:i', '01.01.1970 00:00');
+        }
+
         return Carbon::createFromFormat('d.m.Y H:i', $this->date . ' ' . $this->time);
     }
 

@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-05-27T13:43:51+0200
-last_updated: 2026-06-17T01:00:00+0200
+last_updated: 2026-06-17T14:59:37+0200
 project: Pimcore Custom Maintenance Bundle
 project_key: NOKEY
 tracking_system: file-system
@@ -51,7 +51,7 @@ development_status:
   epic-1-retrospective: done
   epic-2: in-progress
   2-1-maintenance-arten-aus-der-kanonischen-konfiguration-im-admin-ui-darstellen: done
-  2-2-neue-custom-maintenance-art-mit-defaults-anlegen: backlog
+  2-2-neue-custom-maintenance-art-mit-defaults-anlegen: done
   2-3-bestehende-maintenance-art-bearbeiten-und-token-speichern: backlog
   2-4-native-pimcore-maintenance-im-ui-als-geschuetzten-sonderfall-behandeln: backlog
   2-5-custom-maintenance-arten-kontrolliert-loeschen: backlog

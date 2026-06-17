@@ -10,6 +10,16 @@ final class MaintenanceToken
 {
     private string $value;
 
+    public static function fromNewCustomToken(string $value): self
+    {
+        $token = new self($value);
+        if (!preg_match('/^[A-Za-z0-9]+$/', $token->toString())) {
+            throw new \InvalidArgumentException('Maintenance token must be alphanumeric.');
+        }
+
+        return $token;
+    }
+
     public function __construct(string $value)
     {
         $trimmedValue = trim($value);

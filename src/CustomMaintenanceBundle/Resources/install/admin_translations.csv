@@ -22,6 +22,12 @@
 "custommaintenance.never";"";"Niemals";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
 "custommaintenance.pimcore";"";"Pimcore";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
 "custommaintenance.display";"";"Anzeige";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.description";"";"Beschreibung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.timecontrol";"";"Zeitsteuerung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.token";"";"Technischer Token";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.token_exists";"";"Token existiert bereits";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.token_invalid";"";"Token darf nur alphanumerische Zeichen enthalten";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.token_reserved";"";"Token pimcore ist reserviert";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance_adminpanel_add";"";"Neue Maintenance-Art";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance_adminpanel_save";"";"Adminpanel speichern";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
 "custommaintenance_adminpanel_save_success";"";"Speicher erfolgreich";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""

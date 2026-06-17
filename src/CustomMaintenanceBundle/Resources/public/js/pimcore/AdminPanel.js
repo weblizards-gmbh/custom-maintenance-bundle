@@ -332,7 +332,7 @@ custommaintenance.AdminPanel = Class.create({
                 this.data["custom"][token] = this.buildNewCustomConfig();
                 this.layout.add(this.createCustomFieldset(token, this.data["custom"][token], true));
                 this.updateCustomTokensField();
-                this.layout.doLayout();
+                this.refreshFormLayout();
                 pimcore.layout.refresh();
             }.bind(this)
         );
@@ -352,6 +352,21 @@ custommaintenance.AdminPanel = Class.create({
         return Ext.apply(values, overrides);
     },
 
+    refreshFormLayout: function () {
+        if (!this.layout) {
+            return;
+        }
+
+        if (typeof this.layout.updateLayout === "function") {
+            this.layout.updateLayout();
+            return;
+        }
+
+        if (typeof this.layout.doLayout === "function") {
+            this.layout.doLayout();
+        }
+    },
+
     persistAdminValues: function (values, onSuccess) {
         Ext.Ajax.request({
             url: "/admin/weblizards_custom_maintenance/adminpanel/save",
@@ -360,14 +375,23 @@ custommaintenance.AdminPanel = Class.create({
                 data: Ext.encode(values)
             },
             success: function (response) {
+                var res;
+
                 try {
-                    var res = Ext.decode(response.responseText);
-                    pimcore.helpers.showNotification(res.title, res.message, res.type);
-                    if (res.success && onSuccess) {
-                        onSuccess();
-                    }
+                    res = Ext.decode(response.responseText);
                 } catch(e) {
                     pimcore.helpers.showNotification(t("error"), t("custommaintenance_adminpanel_save_error"), "error");
+                    return;
+                }
+
+                pimcore.helpers.showNotification(
+                    res.title ? res.title : t(res.success ? "success" : "error"),
+                    res.message,
+                    res.type ? res.type : (res.success ? "success" : "error")
+                );
+
+                if (res.success && onSuccess) {
+                    onSuccess();
                 }
             }
         });
@@ -399,9 +423,11 @@ custommaintenance.AdminPanel = Class.create({
             this.persistAdminValues(values, function () {
                 this.data["tokens"] = updatedTokens;
                 delete this.data["custom"][token];
-                this.layout.remove(fieldset, true);
+                if (fieldset && fieldset.ownerCt === this.layout) {
+                    this.layout.remove(fieldset, true);
+                }
                 this.updateCustomTokensField();
-                this.layout.doLayout();
+                this.refreshFormLayout();
                 pimcore.layout.refresh();
             }.bind(this));
         }.bind(this));

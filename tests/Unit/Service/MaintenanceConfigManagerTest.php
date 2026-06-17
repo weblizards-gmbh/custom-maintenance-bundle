@@ -447,6 +447,7 @@ final class MaintenanceConfigManagerTest extends TestCase
             'pimcore_to_date' => '2026-02-02',
             'pimcore_to_time' => '2026-02-02 09:30',
             'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'prices',
             'prices_active' => 'true',
             'prices_fixed' => 'false',
             'prices_description' => 'ERP',
@@ -461,6 +462,7 @@ final class MaintenanceConfigManagerTest extends TestCase
             'search_active' => 'false',
             'search_fixed' => 'false',
             'search_description' => '',
+            'search_token' => 'search',
             'search_show_info' => 'never',
             'search_show_info_from_date' => '',
             'search_show_info_from_time' => '',
@@ -484,6 +486,84 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertSame('', $persistedData['custom']['search']['planned']['to']['time']);
         self::assertSame('', $persistedData['custom']['search']['document']);
         self::assertSame('/de/erp-new', $persistedData['custom']['prices']['document']);
+    }
+
+    public function testSaveFromAdminPayloadRenamesExistingCustomTokenAndPersistsChangedFields(): void
+    {
+        $persistedData = null;
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'true',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'automatic',
+                        'show_info_from' => ['date' => '01.01.2026', 'time' => '10:00'],
+                        'planned' => [
+                            'from' => ['date' => '03.01.2026', 'time' => '10:00'],
+                            'to' => ['date' => '03.01.2026', 'time' => '12:00'],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+                'legacy_root' => 'keep-root',
+            ]);
+        $settingsStore
+            ->expects(self::once())
+            ->method('save')
+            ->willReturnCallback(static function (array $data) use (&$persistedData): void {
+                $persistedData = $data;
+            });
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'catalog',
+            'prices_active' => 'false',
+            'prices_fixed' => 'true',
+            'prices_description' => 'Catalog',
+            'prices_show_info' => 'always',
+            'prices_show_info_from_date' => '2026-02-03',
+            'prices_show_info_from_time' => '2026-02-03 06:30',
+            'prices_from_date' => '2026-02-04',
+            'prices_from_time' => '2026-02-04 10:00',
+            'prices_to_date' => '2026-02-04',
+            'prices_to_time' => '2026-02-04 12:00',
+            'prices_document' => '/de/catalog',
+        ]);
+
+        self::assertSame('keep-root', $persistedData['legacy_root']);
+        self::assertArrayNotHasKey('prices', $persistedData['custom']);
+        self::assertSame('false', $persistedData['custom']['catalog']['active']);
+        self::assertSame('true', $persistedData['custom']['catalog']['fixed']);
+        self::assertSame('Catalog', $persistedData['custom']['catalog']['description']);
+        self::assertSame('always', $persistedData['custom']['catalog']['show_info']);
+        self::assertSame('03.02.2026', $persistedData['custom']['catalog']['show_info_from']['date']);
+        self::assertSame('06:30', $persistedData['custom']['catalog']['show_info_from']['time']);
+        self::assertSame('04.02.2026', $persistedData['custom']['catalog']['planned']['from']['date']);
+        self::assertSame('12:00', $persistedData['custom']['catalog']['planned']['to']['time']);
+        self::assertSame('/de/catalog', $persistedData['custom']['catalog']['document']);
     }
 
     public function testSaveFromAdminPayloadRejectsReservedTokenForNewCustomEntry(): void
@@ -524,6 +604,27 @@ final class MaintenanceConfigManagerTest extends TestCase
         ]);
     }
 
+    public function testSaveFromAdminPayloadRejectsTechnicalDeleteAttemptForNativePimcoreEntry(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::never())
+            ->method('load');
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Native Pimcore maintenance cannot be deleted.');
+
+        $manager->saveFromAdminPayload([
+            'pimcore_delete' => 'true',
+        ]);
+    }
+
     public function testSaveFromAdminPayloadRejectsDuplicateTokenListForNewCustomEntry(): void
     {
         $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
@@ -560,6 +661,230 @@ final class MaintenanceConfigManagerTest extends TestCase
             'pimcore_to_time' => '2026-02-02 09:30',
             'pimcore_document' => '/de/pimcore',
         ]);
+    }
+
+    public function testSaveFromAdminPayloadRejectsRenameCollisionWithExistingCustomToken(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '',
+                    ],
+                    'search' => [
+                        'active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'Search',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '',
+                    ],
+                ],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Duplicate custom maintenance token: search');
+
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices,search',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'search',
+            'search_token' => 'search',
+        ]);
+    }
+
+    public function testSaveFromAdminPayloadRejectsRenameCollisionWithOmittedExistingToken(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '',
+                    ],
+                    'search' => [
+                        'active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'Search',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '',
+                    ],
+                ],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Duplicate custom maintenance token: search');
+
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'search',
+        ]);
+    }
+
+    public function testSaveFromAdminPayloadSupportsSwappingTwoExistingCustomTokens(): void
+    {
+        $persistedData = null;
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'true',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'automatic',
+                        'show_info_from' => ['date' => '01.01.2026', 'time' => '10:00'],
+                        'planned' => [
+                            'from' => ['date' => '03.01.2026', 'time' => '10:00'],
+                            'to' => ['date' => '03.01.2026', 'time' => '12:00'],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                    'search' => [
+                        'active' => 'false',
+                        'fixed' => 'true',
+                        'description' => 'Search',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/search',
+                    ],
+                ],
+            ]);
+        $settingsStore
+            ->expects(self::once())
+            ->method('save')
+            ->willReturnCallback(static function (array $data) use (&$persistedData): void {
+                $persistedData = $data;
+            });
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices,search',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'search',
+            'prices_active' => 'true',
+            'prices_fixed' => 'false',
+            'prices_description' => 'ERP',
+            'prices_show_info' => 'automatic',
+            'prices_show_info_from_date' => '2026-02-01',
+            'prices_show_info_from_time' => '2026-02-01 06:30',
+            'prices_from_date' => '2026-02-02',
+            'prices_from_time' => '2026-02-02 10:00',
+            'prices_to_date' => '2026-02-02',
+            'prices_to_time' => '2026-02-02 12:00',
+            'prices_document' => '/de/erp',
+            'search_token' => 'prices',
+            'search_active' => 'false',
+            'search_fixed' => 'true',
+            'search_description' => 'Search',
+            'search_show_info' => 'never',
+            'search_show_info_from_date' => '',
+            'search_show_info_from_time' => '',
+            'search_from_date' => '',
+            'search_from_time' => '',
+            'search_to_date' => '',
+            'search_to_time' => '',
+            'search_document' => '/de/search',
+        ]);
+
+        self::assertSame('ERP', $persistedData['custom']['search']['description']);
+        self::assertSame('/de/erp', $persistedData['custom']['search']['document']);
+        self::assertSame('Search', $persistedData['custom']['prices']['description']);
+        self::assertSame('/de/search', $persistedData['custom']['prices']['document']);
+        self::assertCount(2, $persistedData['custom']);
     }
 
     public function testSetCustomStatusWritesOnlyToSettingsStore(): void

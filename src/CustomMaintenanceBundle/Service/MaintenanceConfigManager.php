@@ -105,8 +105,12 @@ final class MaintenanceConfigManager
 
     public function saveFromAdminPayload(array $values): void
     {
+        $this->assertPimcoreEntryIsProtected($values);
+
         $data = $this->getCurrentRawData();
-        $customTokens = $this->resolveCustomTokens($values, array_keys($data['custom']));
+        $customTokenMap = $this->resolveCustomTokenMap($values, array_keys($data['custom']));
+        $originalCustomData = $data['custom'];
+        $updatedCustomData = array_diff_key($originalCustomData, $customTokenMap);
 
         $data['frontend']['indication_upcoming']['de'] = (string) $values['frontend_indication_upcoming'];
         $data['frontend']['indication_current']['de'] = (string) $values['frontend_indication_current'];
@@ -122,62 +126,73 @@ final class MaintenanceConfigManager
         $data['pimcore']['planned']['to']['time'] = $this->convertJsDateTime((string) $values['pimcore_to_time'], 'time');
         $data['pimcore']['document'] = (string) $values['pimcore_document'];
 
-        foreach ($customTokens as $token) {
-            if (!array_key_exists($token, $data['custom'])) {
-                $data['custom'][$token] = $this->createDefaultCustomEntry();
+        foreach ($customTokenMap as $formToken => $persistedToken) {
+            if (
+                $persistedToken !== $formToken
+                && array_key_exists($persistedToken, $originalCustomData)
+                && !array_key_exists($persistedToken, $customTokenMap)
+            ) {
+                throw new \InvalidArgumentException('Duplicate custom maintenance token: ' . $persistedToken);
             }
 
-            $data['custom'][$token]['active'] = $this->getPayloadValue(
+            $entry = array_key_exists($formToken, $originalCustomData)
+                ? $originalCustomData[$formToken]
+                : $this->createDefaultCustomEntry();
+
+            $entry['active'] = $this->getPayloadValue(
                 $values,
-                $token . '_active',
-                (string) ($data['custom'][$token]['active'] ?? 'false')
+                $formToken . '_active',
+                (string) ($entry['active'] ?? 'false')
             );
-            $data['custom'][$token]['fixed'] = $this->getPayloadValue(
+            $entry['fixed'] = $this->getPayloadValue(
                 $values,
-                $token . '_fixed',
-                (string) ($data['custom'][$token]['fixed'] ?? 'false')
+                $formToken . '_fixed',
+                (string) ($entry['fixed'] ?? 'false')
             );
-            $data['custom'][$token]['description'] = $this->getPayloadValue(
+            $entry['description'] = $this->getPayloadValue(
                 $values,
-                $token . '_description',
-                (string) ($data['custom'][$token]['description'] ?? '')
+                $formToken . '_description',
+                (string) ($entry['description'] ?? '')
             );
-            $data['custom'][$token]['show_info'] = $this->getPayloadValue(
+            $entry['show_info'] = $this->getPayloadValue(
                 $values,
-                $token . '_show_info',
-                (string) ($data['custom'][$token]['show_info'] ?? 'never')
+                $formToken . '_show_info',
+                (string) ($entry['show_info'] ?? 'never')
             );
-            $data['custom'][$token]['show_info_from']['date'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $token . '_show_info_from_date'),
+            $entry['show_info_from']['date'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $formToken . '_show_info_from_date'),
                 'date'
             );
-            $data['custom'][$token]['show_info_from']['time'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $token . '_show_info_from_time'),
+            $entry['show_info_from']['time'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $formToken . '_show_info_from_time'),
                 'time'
             );
-            $data['custom'][$token]['planned']['from']['date'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $token . '_from_date'),
+            $entry['planned']['from']['date'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $formToken . '_from_date'),
                 'date'
             );
-            $data['custom'][$token]['planned']['from']['time'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $token . '_from_time'),
+            $entry['planned']['from']['time'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $formToken . '_from_time'),
                 'time'
             );
-            $data['custom'][$token]['planned']['to']['date'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $token . '_to_date'),
+            $entry['planned']['to']['date'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $formToken . '_to_date'),
                 'date'
             );
-            $data['custom'][$token]['planned']['to']['time'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $token . '_to_time'),
+            $entry['planned']['to']['time'] = $this->convertOptionalJsDateTime(
+                $this->getPayloadValue($values, $formToken . '_to_time'),
                 'time'
             );
-            $data['custom'][$token]['document'] = $this->getPayloadValue(
+            $entry['document'] = $this->getPayloadValue(
                 $values,
-                $token . '_document',
-                (string) ($data['custom'][$token]['document'] ?? '')
+                $formToken . '_document',
+                (string) ($entry['document'] ?? '')
             );
+
+            $updatedCustomData[$persistedToken] = $entry;
         }
 
+        $data['custom'] = $updatedCustomData;
         $this->persistLegacyData($data);
     }
 
@@ -242,40 +257,50 @@ final class MaintenanceConfigManager
     /**
      * @param string[] $existingTokens
      *
-     * @return string[]
+     * @return array<string,string>
      */
-    private function resolveCustomTokens(array $values, array $existingTokens): array
+    private function resolveCustomTokenMap(array $values, array $existingTokens): array
     {
         if (!array_key_exists('custom_tokens', $values)) {
-            return $existingTokens;
+            return array_combine($existingTokens, $existingTokens) ?: [];
         }
 
         $rawTokens = explode(',', (string) $values['custom_tokens']);
-        $tokens = [];
+        $tokenMap = [];
         $seen = [];
 
         foreach ($rawTokens as $rawToken) {
-            $token = trim($rawToken);
-            if ($token === '') {
+            $formToken = trim($rawToken);
+            if ($formToken === '') {
                 continue;
             }
 
-            if (array_key_exists($token, $seen)) {
-                throw new \InvalidArgumentException('Duplicate custom maintenance token: ' . $token);
+            $persistedToken = trim($this->getPayloadValue($values, $formToken . '_token', $formToken));
+
+            if (array_key_exists($persistedToken, $seen)) {
+                throw new \InvalidArgumentException('Duplicate custom maintenance token: ' . $persistedToken);
             }
 
-            if (!in_array($token, $existingTokens, true)) {
-                $newToken = MaintenanceToken::fromNewCustomToken($token);
+            $requiresValidation = !in_array($formToken, $existingTokens, true) || $persistedToken !== $formToken;
+            if ($requiresValidation) {
+                $newToken = MaintenanceToken::fromNewCustomToken($persistedToken);
                 if ($newToken->isPimcore()) {
                     throw new \InvalidArgumentException('Custom maintenance token "pimcore" is reserved.');
                 }
             }
 
-            $tokens[] = $token;
-            $seen[$token] = true;
+            $tokenMap[$formToken] = $persistedToken;
+            $seen[$persistedToken] = true;
         }
 
-        return $tokens;
+        return $tokenMap;
+    }
+
+    private function assertPimcoreEntryIsProtected(array $values): void
+    {
+        if ($this->isTruthyPayloadValue($values, 'pimcore_delete')) {
+            throw new \InvalidArgumentException('Native Pimcore maintenance cannot be deleted.');
+        }
     }
 
     private function createDefaultCustomEntry(): array
@@ -310,6 +335,15 @@ final class MaintenanceConfigManager
         }
 
         return (string) $values[$key];
+    }
+
+    private function isTruthyPayloadValue(array $values, string $key): bool
+    {
+        if (!array_key_exists($key, $values)) {
+            return false;
+        }
+
+        return in_array(strtolower(trim((string) $values[$key])), ['1', 'true', 'yes', 'on'], true);
     }
 
     private function convertJsDateTime(string $dateTime, string $target): string

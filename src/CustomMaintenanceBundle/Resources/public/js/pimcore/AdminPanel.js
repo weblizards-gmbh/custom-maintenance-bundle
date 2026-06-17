@@ -125,7 +125,10 @@ custommaintenance.AdminPanel = Class.create({
                     },
                     {
                         xtype:'fieldset',
-                        title: t('custommaintenance.pimcore'),
+                        title: this.translateWithFallback(
+                            "custommaintenance.pimcore_protected_title",
+                            "Pimcore (geschuetzter Sondereintrag)"
+                        ),
                         collapsible: true,
                         collapsed: false,
                         autoHeight:true,
@@ -133,6 +136,14 @@ custommaintenance.AdminPanel = Class.create({
                             labelWidth: 250
                         },
                         items: [
+                            {
+                                xtype: "displayfield",
+                                value: this.translateWithFallback(
+                                    "custommaintenance.pimcore_protected_notice",
+                                    "Dieser native Pimcore-Eintrag ist permanent geschuetzt und kann nicht geloescht werden."
+                                ),
+                                cls: "x-form-display-field"
+                            },
                             {
                                 xtype: 'fieldset',
                                 title: t("custommaintenance.timecontrol"),
@@ -383,32 +394,41 @@ custommaintenance.AdminPanel = Class.create({
         var descriptionValue = config["description"] ? config["description"] : "";
         var title = descriptionValue ? descriptionValue : token;
         var fieldset;
+        var updateTitle = function () {
+            var form = this.layout.getForm();
+            var tokenField = form.findField(token + "_token");
+            var descriptionField = form.findField(token + "_description");
+            var titleToken = tokenField && tokenField.getValue() ? tokenField.getValue() : token;
+            var titleDescription = descriptionField && descriptionField.getValue() ? descriptionField.getValue() : "";
 
-        if (isNewEntry) {
-            items.push({
-                xtype: "displayfield",
-                fieldLabel: this.translateWithFallback("custommaintenance.token", "Technischer Token"),
-                value: token
-            });
-            items.push({
-                xtype: "textfield",
-                fieldLabel: this.translateWithFallback("custommaintenance.description", "Beschreibung"),
-                name: token + "_description",
-                value: descriptionValue,
-                width: 425,
-                listeners: {
-                    change: function (field, newValue) {
-                        fieldset.setTitle(newValue ? newValue : token);
-                    }
-                }
-            });
-        } else {
-            items.push({
-                xtype: "hidden",
-                name: token + "_description",
-                value: descriptionValue
-            });
-        }
+            fieldset.setTitle(titleDescription ? titleDescription : titleToken);
+        }.bind(this);
+
+        items.push({
+            xtype: "hidden",
+            name: token + "_original_token",
+            value: token
+        });
+        items.push({
+            xtype: "textfield",
+            fieldLabel: this.translateWithFallback("custommaintenance.token", "Technischer Token"),
+            name: token + "_token",
+            value: token,
+            width: 425,
+            listeners: {
+                change: updateTitle
+            }
+        });
+        items.push({
+            xtype: "textfield",
+            fieldLabel: this.translateWithFallback("custommaintenance.description", "Beschreibung"),
+            name: token + "_description",
+            value: descriptionValue,
+            width: 425,
+            listeners: {
+                change: updateTitle
+            }
+        });
 
         items.push({
             fieldLabel: t("custommaintenance.active"),

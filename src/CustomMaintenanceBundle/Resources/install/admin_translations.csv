@@ -21,6 +21,8 @@
 "custommaintenance.manualmode";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.never";"";"Niemals";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
 "custommaintenance.pimcore";"";"Pimcore";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";;
+"custommaintenance.pimcore_protected_notice";"";"Dieser native Pimcore-Eintrag ist permanent geschuetzt und kann nicht geloescht werden.";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
+"custommaintenance.pimcore_protected_title";"";"Pimcore (geschuetzter Sondereintrag)";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.display";"";"Anzeige";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.description";"";"Beschreibung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""
 "custommaintenance.timecontrol";"";"Zeitsteuerung";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";""

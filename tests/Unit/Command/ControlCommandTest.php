@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Weblizards\CustomMaintenanceBundle\Test\Unit\Command;
 
+use Pimcore\Twig\Extension\Templating\HeadLink;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use Weblizards\CustomMaintenanceBundle\Command\ControlCommand;
+use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
+use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface;
+use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
 use Weblizards\CustomMaintenanceBundle\Service\StatusService;
 
 final class ControlCommandTest extends TestCase
@@ -115,5 +119,140 @@ final class ControlCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertSame("OK\n", $tester->getDisplay());
+    }
+
+    public function testListTokensReadsTokensFromCanonicalConfigurationSource(): void
+    {
+        $command = $this->createRealControlCommand($this->buildCliConfig(StatusService::STATUS_INACTIVE));
+        $tester = new CommandTester($command);
+
+        $exitCode = $tester->execute(['task' => 'list-tokens', '--porcelain' => true]);
+
+        self::assertSame(0, $exitCode);
+        self::assertSame("prices\norders\n", $tester->getDisplay());
+    }
+
+    public function testShowStatusAndActivationCycleUseTheSharedCanonicalStatusPath(): void
+    {
+        $command = $this->createRealControlCommand($this->buildCliConfig(StatusService::STATUS_INACTIVE));
+
+        $showBeforeTester = new CommandTester($command);
+        self::assertSame(0, $showBeforeTester->execute(['task' => 'show-status', '--token' => 'prices', '--porcelain' => true]));
+        self::assertSame("inactive\n", $showBeforeTester->getDisplay());
+
+        $activateTester = new CommandTester($command);
+        self::assertSame(0, $activateTester->execute(['task' => 'activate', '--token' => 'prices', '--porcelain' => true]));
+        self::assertSame("OK\n", $activateTester->getDisplay());
+
+        $showAfterActivateTester = new CommandTester($command);
+        self::assertSame(
+            0,
+            $showAfterActivateTester->execute(['task' => 'show-status', '--token' => 'prices', '--porcelain' => true])
+        );
+        self::assertSame("active\n", $showAfterActivateTester->getDisplay());
+
+        $deactivateTester = new CommandTester($command);
+        self::assertSame(
+            0,
+            $deactivateTester->execute(['task' => 'deactivate', '--token' => 'prices', '--porcelain' => true])
+        );
+        self::assertSame("OK\n", $deactivateTester->getDisplay());
+
+        $showAfterDeactivateTester = new CommandTester($command);
+        self::assertSame(
+            0,
+            $showAfterDeactivateTester->execute(['task' => 'show-status', '--token' => 'prices', '--porcelain' => true])
+        );
+        self::assertSame("inactive\n", $showAfterDeactivateTester->getDisplay());
+    }
+
+    private function createRealControlCommand(?array $initialConfig): ControlCommand
+    {
+        $store = new class($initialConfig) implements ConfigPersistenceInterface {
+            private ?array $data;
+
+            public function __construct(?array $data)
+            {
+                $this->data = $data;
+            }
+
+            public function load(): ?array
+            {
+                return $this->data;
+            }
+
+            public function save(array $data): void
+            {
+                $this->data = $data;
+            }
+        };
+
+        $legacyLoader = new class() implements LegacyConfigLoaderInterface {
+            public function load(): ?array
+            {
+                return null;
+            }
+        };
+
+        $headLink = $this
+            ->getMockBuilder(HeadLink::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__call'])
+            ->getMock();
+        $headLink
+            ->expects(self::once())
+            ->method('__call')
+            ->with('appendStylesheet', ['/bundles/weblizardscustommaintenance/css/frontend.css']);
+
+        $statusService = new StatusService(new MaintenanceConfigManager($store, $legacyLoader), $headLink);
+
+        return new ControlCommand($statusService);
+    }
+
+    private function buildCliConfig(string $activeStatus): array
+    {
+        return [
+            'frontend' => [
+                'indication_upcoming' => ['de' => 'Upcoming %s %s'],
+                'indication_current' => ['de' => 'Current %s %s'],
+                'more' => ['de' => 'Mehr'],
+                'fulltimeformat' => ['de' => 'd.m.Y H:i'],
+            ],
+            'pimcore' => [
+                'show_info' => 'never',
+                'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                'planned' => [
+                    'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                ],
+                'document' => '',
+            ],
+            'custom' => [
+                'prices' => [
+                    'active' => $activeStatus,
+                    'fixed' => StatusService::STATUS_INACTIVE,
+                    'description' => 'ERP',
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.02.2026', 'time' => '09:00'],
+                        'to' => ['date' => '01.02.2026', 'time' => '11:00'],
+                    ],
+                    'document' => '',
+                ],
+                'orders' => [
+                    'active' => StatusService::STATUS_INACTIVE,
+                    'fixed' => StatusService::STATUS_INACTIVE,
+                    'description' => 'Orders',
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+            ],
+        ];
     }
 }

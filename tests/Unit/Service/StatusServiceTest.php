@@ -7,6 +7,7 @@ namespace Weblizards\CustomMaintenanceBundle\Test\Unit\Service;
 use Carbon\Carbon;
 use PHPUnit\Framework\TestCase;
 use Pimcore\Twig\Extension\Templating\HeadLink;
+use Psr\Log\AbstractLogger;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface;
 use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
@@ -624,6 +625,93 @@ final class StatusServiceTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function testGetStatusLogsUnknownTokenAsRuntimeError(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_ACTIVE));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+        $logger = $this->createRecordingLogger();
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock(),
+            $logger
+        );
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Invalid token: ghost');
+
+        try {
+            $service->getStatus('ghost');
+        } finally {
+            self::assertCount(1, $logger->records);
+            self::assertSame('error', $logger->records[0]['level']);
+            self::assertSame('ghost', $logger->records[0]['context']['token']);
+            self::assertStringContainsString('unknown or deleted', $logger->records[0]['message']);
+        }
+    }
+
+    public function testGetStatusKeepsPimcoreExcludedFromTheCustomTokenContract(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore->expects(self::never())->method('load');
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+        $logger = $this->createRecordingLogger();
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock(),
+            $logger
+        );
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Invalid token: pimcore');
+
+        try {
+            $service->getStatus('pimcore');
+        } finally {
+            self::assertCount(0, $logger->records);
+        }
+    }
+
+    public function testUnknownAndDeletedReferenceTokensShareTheSameLoggingSemantics(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_ACTIVE));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+        $logger = $this->createRecordingLogger();
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock(),
+            $logger
+        );
+
+        foreach (['ghost', 'prices-legacy'] as $token) {
+            try {
+                $service->isActive($token);
+                self::fail('Expected unknown token exception for ' . $token);
+            } catch (\Exception $exception) {
+                self::assertSame('Invalid token: ' . $token, $exception->getMessage());
+            }
+        }
+
+        self::assertCount(2, $logger->records);
+        self::assertSame('ghost', $logger->records[0]['context']['token']);
+        self::assertSame('prices-legacy', $logger->records[1]['context']['token']);
+        self::assertStringContainsString('unknown or deleted', $logger->records[0]['message']);
+        self::assertStringContainsString('unknown or deleted', $logger->records[1]['message']);
+    }
+
     private function createHeadLinkMock(): HeadLink
     {
         $headLink = $this
@@ -637,6 +725,25 @@ final class StatusServiceTest extends TestCase
             ->with('appendStylesheet', ['/bundles/weblizardscustommaintenance/css/frontend.css']);
 
         return $headLink;
+    }
+
+    private function createRecordingLogger(): AbstractLogger
+    {
+        return new class() extends AbstractLogger {
+            /**
+             * @var array<int, array{level:string, message:string, context:array<string, mixed>}>
+             */
+            public array $records = [];
+
+            public function log($level, $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => (string) $level,
+                    'message' => (string) $message,
+                    'context' => $context,
+                ];
+            }
+        };
     }
 
     private function buildStatusServiceConfig(string $activeStatus): array

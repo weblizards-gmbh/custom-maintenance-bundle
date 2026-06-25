@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Weblizards\CustomMaintenanceBundle\Service;
 
 use Carbon\Carbon;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Weblizards\CustomMaintenanceBundle\Domain\Model\MaintenanceEntry;
 use Pimcore\Twig\Extension\Templating\HeadLink;
 use Twig\Environment;
@@ -20,15 +22,20 @@ class StatusService
 
     private HeadLink $headLink;
 
-    public function __construct(MaintenanceConfigManager $configManager, HeadLink $headLink)
+    private LoggerInterface $logger;
+
+    public function __construct(MaintenanceConfigManager $configManager, HeadLink $headLink, ?LoggerInterface $logger = null)
     {
         $this->configManager = $configManager;
         $this->headLink = $headLink;
+        $this->logger = $logger ?? new NullLogger();
         $headLink->appendStylesheet('/bundles/weblizardscustommaintenance/css/frontend.css');
     }
 
     /**
-     * Returns an array of valid tokens of the existing custom maintenances.
+     * Returns the valid custom-maintenance tokens for the runtime API.
+     *
+     * The reserved token {@see Config::TOKEN_PIMCORE} is intentionally not part of this list.
      *
      * @return string[]
      */
@@ -49,6 +56,11 @@ class StatusService
     }
 
     /**
+     * Sets the stored status for a custom-maintenance token.
+     *
+     * Only tokens returned by {@see getValidTokens()} are accepted here. The reserved
+     * token {@see Config::TOKEN_PIMCORE} is not writable through this API.
+     *
      * @throws \Exception
      */
     public function setStatus(string $token, string $status, bool $overrideFixed = false): void
@@ -67,11 +79,16 @@ class StatusService
     }
 
     /**
+     * Returns the stored status for a custom-maintenance token.
+     *
+     * Only custom tokens are valid here. The reserved token {@see Config::TOKEN_PIMCORE}
+     * has no runtime status in this API and is rejected as invalid.
+     *
      * @throws \Exception
      */
     public function getStatus(string $token): string
     {
-        if (!in_array($token, $this->getValidTokens())) {
+        if ($token === Config::TOKEN_PIMCORE) {
             throw new \Exception('Invalid token: ' . $token);
         }
 
@@ -79,6 +96,16 @@ class StatusService
     }
 
     /**
+     * Evaluates whether at least one maintenance is currently active.
+     *
+     * Accepted inputs:
+     * - `null`: evaluate all configured tokens
+     * - `string`: evaluate one token
+     * - `string[]`: evaluate multiple tokens
+     *
+     * The reserved token {@see Config::TOKEN_PIMCORE} is tolerated in this method but is
+     * skipped because it has no custom runtime status.
+     *
      * @param array|string $token
      *
      * @throws \Exception if token is invalid
@@ -115,6 +142,11 @@ class StatusService
     }
 
     /**
+     * Returns whether a custom-maintenance token is fixed and should resist status changes.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}, because
+     * fixed-mode semantics exist on the underlying maintenance entry as well.
+     *
      * @throws \Exception if token is invalid
      */
     public function isFixedMode(string $token): bool
@@ -124,6 +156,9 @@ class StatusService
 
     /**
      * Whether external tools should keep their hands off regarding maintenance control.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}. Unknown
+     * or deleted custom tokens remain invalid and are logged centrally.
      *
      * @throws \Exception
      */
@@ -139,6 +174,11 @@ class StatusService
     }
 
     /**
+     * Returns whether an upcoming notice should be shown for a maintenance token.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}. Unknown
+     * or deleted custom tokens remain invalid and are logged centrally.
+     *
      * @throws \Exception
      */
     public function showUpcoming(string $token): bool
@@ -170,6 +210,11 @@ class StatusService
     }
 
     /**
+     * Returns the configured notice document path for a maintenance token.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}. Unknown
+     * or deleted custom tokens remain invalid and are logged centrally.
+     *
      * @return bool|string
      *
      * @throws \Exception if token is invalid
@@ -180,6 +225,11 @@ class StatusService
     }
 
     /**
+     * Returns the configured maintenance start timestamp for a maintenance token.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}. Unknown
+     * or deleted custom tokens remain invalid and are logged centrally.
+     *
      * @throws \Exception if token doesn't exist
      */
     public function getMaintenanceFrom(string $token): Carbon
@@ -188,6 +238,11 @@ class StatusService
     }
 
     /**
+     * Returns the configured maintenance end timestamp for a maintenance token.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}. Unknown
+     * or deleted custom tokens remain invalid and are logged centrally.
+     *
      * @throws \Exception
      */
     public function getMaintenanceTo(string $token): Carbon
@@ -196,6 +251,11 @@ class StatusService
     }
 
     /**
+     * Returns the legacy config payload for a maintenance token.
+     *
+     * Accepts custom tokens and the reserved token {@see Config::TOKEN_PIMCORE}. Unknown
+     * or deleted custom tokens remain invalid and are logged centrally.
+     *
      * @throws \Exception if token is invalid
      */
     public function getConfigForToken(string $token): array
@@ -355,7 +415,12 @@ class StatusService
         try {
             return $this->configManager->getConfigSet()->getEntry($token);
         } catch (\InvalidArgumentException $exception) {
-            throw new \Exception($exception->getMessage(), 0, $exception);
+            $this->logger->error(
+                sprintf('Maintenance token "%s" was not found. It may be unknown or deleted.', $token),
+                ['token' => $token, 'exception' => $exception]
+            );
+
+            throw new \Exception('Invalid token: ' . $token, 0, $exception);
         }
     }
 }

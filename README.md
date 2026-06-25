@@ -110,9 +110,11 @@ Die Twig-Funktion `isMaintenanceActive()` delegiert dabei direkt an denselben `S
 Die zentrale Runtime-API liegt im `StatusService`.
 
 - `getValidTokens()` liefert die Custom-Tokens.
-- `getStatus($token)` liefert den gespeicherten Status (`true` oder `false` als String-Konstanten des Services).
-- `setStatus($token, $state, $overrideFixed = false)` setzt den Status fuer einen Custom-Token; `fixed`-Maintenances koennen optional explizit uebersteuert werden.
-- `isActive($token)` prueft, ob eine Maintenance aktiv ist; ohne Argument wird ueber alle konfigurierten Custom-Maintenances ausgewertet.
+- `getStatus($token)` liefert den gespeicherten Status (`true` oder `false` als String-Konstanten des Services) fuer einen Custom-Token; `pimcore` ist hier absichtlich kein gueltiger Token.
+- `setStatus($token, $state, $overrideFixed = false)` setzt den Status fuer einen Custom-Token; `fixed`-Maintenances koennen optional explizit uebersteuert werden, `pimcore` jedoch nicht.
+- `isActive($token)` prueft, ob eine Maintenance aktiv ist; ohne Argument wird ueber alle konfigurierten Tokens ausgewertet, der reservierte Token `pimcore` wird dabei uebersprungen.
+- `isFixedMode()`, `isHandsOff()`, `showUpcoming()`, `getDocumentPath()`, `getMaintenanceFrom()`, `getMaintenanceTo()` und `getConfigForToken()` arbeiten auf Maintenance-Entries und akzeptieren daher sowohl Custom-Tokens als auch den reservierten Token `pimcore`.
+- Unbekannte oder geloeschte Tokens bleiben ein Fehlerpfad und werden zusaetzlich im Anwendungslog auf Fehlerniveau protokolliert.
 
 Beispiel:
 

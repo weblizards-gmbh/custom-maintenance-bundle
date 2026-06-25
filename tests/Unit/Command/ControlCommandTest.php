@@ -6,6 +6,7 @@ namespace Weblizards\CustomMaintenanceBundle\Test\Unit\Command;
 
 use Pimcore\Twig\Extension\Templating\HeadLink;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use Symfony\Component\Console\Tester\CommandTester;
 use Weblizards\CustomMaintenanceBundle\Command\ControlCommand;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
@@ -229,7 +230,7 @@ final class ControlCommandTest extends TestCase
             ->method('__call')
             ->with('appendStylesheet', ['/bundles/weblizardscustommaintenance/css/frontend.css']);
 
-        $statusService = new StatusService(new MaintenanceConfigManager($store, $legacyLoader), $headLink);
+        $statusService = new StatusService(new MaintenanceConfigManager($store, $legacyLoader), $headLink, new NullLogger());
 
         return new ControlCommand($statusService);
     }

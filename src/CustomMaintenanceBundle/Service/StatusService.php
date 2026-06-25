@@ -51,13 +51,16 @@ class StatusService
     /**
      * @throws \Exception
      */
-    public function setStatus(string $token, string $status): void
+    public function setStatus(string $token, string $status, bool $overrideFixed = false): void
     {
         if (!in_array($token, $this->getValidTokens())) {
             throw new \Exception('Invalid token: ' . $token);
         }
         if (!in_array($status, $this->getValidStates())) {
             throw new \Exception('Invalid status: ' . $status);
+        }
+        if ($this->isFixedMode($token) && !$overrideFixed) {
+            throw new \Exception('Admin priority mode is active, nothing changed');
         }
 
         $this->configManager->setCustomStatus($token, $status);

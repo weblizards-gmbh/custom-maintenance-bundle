@@ -78,11 +78,7 @@ class ControlCommand extends AbstractCommand
 
                 case 'activate':
                     $token = $input->getOption('token');
-                    if ($this->statusService->isFixedMode($token) && !$overrideFixed) {
-                        throw new \Exception('Admin priority mode is active, nothing changed');
-                    }
-
-                    $this->statusService->setStatus($token, StatusService::STATUS_ACTIVE);
+                    $this->statusService->setStatus($token, StatusService::STATUS_ACTIVE, $overrideFixed);
                     if ($machineReadable) {
                         $output->writeln('OK');
                     } else {
@@ -93,11 +89,7 @@ class ControlCommand extends AbstractCommand
 
                 case 'deactivate':
                     $token = $input->getOption('token');
-                    if ($this->statusService->isFixedMode($token) && !$overrideFixed) {
-                        throw new \Exception('Admin priority mode is active, nothing changed');
-                    }
-
-                    $this->statusService->setStatus($token, StatusService::STATUS_INACTIVE);
+                    $this->statusService->setStatus($token, StatusService::STATUS_INACTIVE, $overrideFixed);
                     if ($machineReadable) {
                         $output->writeln('OK');
                     } else {

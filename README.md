@@ -103,14 +103,16 @@ Den Status einzelner Maintenances koennen Anwendungen ueber Twig ebenfalls pruef
 {% endif %}
 ```
 
+Die Twig-Funktion `isMaintenanceActive()` delegiert dabei direkt an denselben `StatusService`-Pfad wie die PHP-Nutzung.
+
 ## PHP-API
 
 Die zentrale Runtime-API liegt im `StatusService`.
 
 - `getValidTokens()` liefert die Custom-Tokens.
 - `getStatus($token)` liefert den gespeicherten Status (`true` oder `false` als String-Konstanten des Services).
-- `setStatus($token, $state)` setzt den Status fuer einen Custom-Token.
-- `isActive($token)` prueft, ob eine Maintenance aktiv ist.
+- `setStatus($token, $state, $overrideFixed = false)` setzt den Status fuer einen Custom-Token; `fixed`-Maintenances koennen optional explizit uebersteuert werden.
+- `isActive($token)` prueft, ob eine Maintenance aktiv ist; ohne Argument wird ueber alle konfigurierten Custom-Maintenances ausgewertet.
 
 Beispiel:
 

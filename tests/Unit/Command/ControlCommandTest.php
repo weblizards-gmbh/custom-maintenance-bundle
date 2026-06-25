@@ -68,14 +68,10 @@ final class ControlCommandTest extends TestCase
         $statusService = $this->createMock(StatusService::class);
         $statusService
             ->expects(self::exactly(2))
-            ->method('isFixedMode')
-            ->with('prices')
-            ->willReturn(false);
-        $statusService
-            ->expects(self::exactly(2))
             ->method('setStatus')
-            ->willReturnCallback(function (string $token, string $status) use (&$receivedStatuses): void {
+            ->willReturnCallback(function (string $token, string $status, bool $overrideFixed) use (&$receivedStatuses): void {
                 self::assertSame('prices', $token);
+                self::assertFalse($overrideFixed);
                 $receivedStatuses[] = $status;
             });
 
@@ -99,13 +95,8 @@ final class ControlCommandTest extends TestCase
         $statusService = $this->createMock(StatusService::class);
         $statusService
             ->expects(self::once())
-            ->method('isFixedMode')
-            ->with('prices')
-            ->willReturn(true);
-        $statusService
-            ->expects(self::once())
             ->method('setStatus')
-            ->with('prices', StatusService::STATUS_ACTIVE);
+            ->with('prices', StatusService::STATUS_ACTIVE, true);
 
         $command = new ControlCommand($statusService);
         $tester = new CommandTester($command);
@@ -119,6 +110,40 @@ final class ControlCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertSame("OK\n", $tester->getDisplay());
+    }
+
+    public function testDeactivateReturnsErrorWhenFixedProtectionBlocksRollback(): void
+    {
+        $command = $this->createRealControlCommand($this->buildCliConfig(StatusService::STATUS_ACTIVE, StatusService::STATUS_ACTIVE));
+        $tester = new CommandTester($command);
+
+        $exitCode = $tester->execute(['task' => 'deactivate', '--token' => 'prices', '--porcelain' => true]);
+
+        self::assertSame(1, $exitCode);
+
+        $showTester = new CommandTester($command);
+        self::assertSame(0, $showTester->execute(['task' => 'show-status', '--token' => 'prices', '--porcelain' => true]));
+        self::assertSame("active\n", $showTester->getDisplay());
+    }
+
+    public function testOverrideFixedAllowsPorcelainDeactivationViaSharedStatusPath(): void
+    {
+        $command = $this->createRealControlCommand($this->buildCliConfig(StatusService::STATUS_ACTIVE, StatusService::STATUS_ACTIVE));
+
+        $tester = new CommandTester($command);
+        $exitCode = $tester->execute([
+            'task' => 'deactivate',
+            '--token' => 'prices',
+            '--override-fixed' => true,
+            '--porcelain' => true,
+        ]);
+
+        self::assertSame(0, $exitCode);
+        self::assertSame("OK\n", $tester->getDisplay());
+
+        $showTester = new CommandTester($command);
+        self::assertSame(0, $showTester->execute(['task' => 'show-status', '--token' => 'prices', '--porcelain' => true]));
+        self::assertSame("inactive\n", $showTester->getDisplay());
     }
 
     public function testListTokensReadsTokensFromCanonicalConfigurationSource(): void
@@ -209,7 +234,7 @@ final class ControlCommandTest extends TestCase
         return new ControlCommand($statusService);
     }
 
-    private function buildCliConfig(string $activeStatus): array
+    private function buildCliConfig(string $activeStatus, string $fixedStatus = StatusService::STATUS_INACTIVE): array
     {
         return [
             'frontend' => [
@@ -230,7 +255,7 @@ final class ControlCommandTest extends TestCase
             'custom' => [
                 'prices' => [
                     'active' => $activeStatus,
-                    'fixed' => StatusService::STATUS_INACTIVE,
+                    'fixed' => $fixedStatus,
                     'description' => 'ERP',
                     'show_info' => 'never',
                     'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],

@@ -30,6 +30,9 @@ final class ConfigurationTest extends TestCase
 
         self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\Config'));
         self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\Service\\StatusService'));
+        self::assertTrue($container->getDefinition('Weblizards\\CustomMaintenanceBundle\\Service\\StatusService')->isPublic());
+        self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\Twig\\Extensions'));
+        self::assertTrue($container->getDefinition('Weblizards\\CustomMaintenanceBundle\\Twig\\Extensions')->hasTag('twig.extension'));
         self::assertTrue($container->hasParameter('weblizards_custommaintenance.config'));
         self::assertSame([], $container->getParameter('weblizards_custommaintenance.config'));
     }

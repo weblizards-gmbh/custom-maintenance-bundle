@@ -24,6 +24,14 @@ class WeblizardsCustomMaintenanceExtension extends Extension
         $loader = new YamlFileLoader($container, new FileLocator(__DIR__ . '/../Resources/config'));
         $loader->load('services.yml');
 
+        $container->setParameter(
+            'weblizards_custom_maintenance.notice_template.upcoming',
+            $config['notice_templates']['upcoming']
+        );
+        $container->setParameter(
+            'weblizards_custom_maintenance.notice_template.current',
+            $config['notice_templates']['current']
+        );
         $container->setParameter('weblizards_custommaintenance.config', $config);
     }
 }

@@ -142,6 +142,27 @@ final class ExtensionsTest extends TestCase
         }
     }
 
+    public function testNoticeFunctionsDelegateToTheSharedStatusServiceUnchanged(): void
+    {
+        $statusService = $this->createMock(StatusService::class);
+        $statusService
+            ->expects(self::once())
+            ->method('indicateUpcomingMaintenance')
+            ->with(self::isInstanceOf(Environment::class))
+            ->willReturn('<div>upcoming</div>');
+        $statusService
+            ->expects(self::once())
+            ->method('indicateCurrentMaintenance')
+            ->with(self::isInstanceOf(Environment::class))
+            ->willReturn('<div>current</div>');
+
+        $environment = new Environment(new ArrayLoader());
+        $extension = new Extensions($environment, $statusService);
+
+        self::assertSame('<div>upcoming</div>', $extension->indicateUpcomingMaintenance());
+        self::assertSame('<div>current</div>', $extension->indicateCurrentMaintenance());
+    }
+
     private function createHeadLinkMock(): HeadLink
     {
         $headLink = $this

@@ -47,6 +47,9 @@ services:
 
     Weblizards\CustomMaintenanceBundle\Service\StatusService:
         public: true
+        arguments:
+            $upcomingNoticeTemplate: '%weblizards_custom_maintenance.notice_template.upcoming%'
+            $currentNoticeTemplate: '%weblizards_custom_maintenance.notice_template.current%'
 
     Weblizards\CustomMaintenanceBundle\Twig\Extensions:
         public: true

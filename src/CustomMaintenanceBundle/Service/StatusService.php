@@ -18,17 +18,33 @@ class StatusService
 
     public const STATUS_INACTIVE = 'false';
 
+    private const DEFAULT_UPCOMING_NOTICE_TEMPLATE = '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig';
+
+    private const DEFAULT_CURRENT_NOTICE_TEMPLATE = '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig';
+
     private MaintenanceConfigManager $configManager;
 
     private HeadLink $headLink;
 
     private LoggerInterface $logger;
 
-    public function __construct(MaintenanceConfigManager $configManager, HeadLink $headLink, ?LoggerInterface $logger = null)
+    private string $upcomingNoticeTemplate;
+
+    private string $currentNoticeTemplate;
+
+    public function __construct(
+        MaintenanceConfigManager $configManager,
+        HeadLink $headLink,
+        ?LoggerInterface $logger = null,
+        ?string $upcomingNoticeTemplate = null,
+        ?string $currentNoticeTemplate = null
+    )
     {
         $this->configManager = $configManager;
         $this->headLink = $headLink;
         $this->logger = $logger ?? new NullLogger();
+        $this->upcomingNoticeTemplate = $upcomingNoticeTemplate ?? self::DEFAULT_UPCOMING_NOTICE_TEMPLATE;
+        $this->currentNoticeTemplate = $currentNoticeTemplate ?? self::DEFAULT_CURRENT_NOTICE_TEMPLATE;
         $headLink->appendStylesheet('/bundles/weblizardscustommaintenance/css/frontend.css');
     }
 
@@ -315,20 +331,12 @@ class StatusService
                     $from->format($frontendConfig->getFulltimeFormat('de')),
                     $to->format($frontendConfig->getFulltimeFormat('de'))
                 );
-
-                $link = '';
-                $document_path = $this->getDocumentPath($upcoming);
-                if ($document_path) {
-                    $link = [
-                        'url' => $document_path,
-                        'caption' => $frontendConfig->getMoreCaption('de'),
-                    ];
-                }
-
-                $output = $engine->render('@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig', [
-                    'message' => $message,
-                    'link' => $link,
-                ]);
+                $output = $this->renderNoticeTemplate(
+                    $engine,
+                    $this->upcomingNoticeTemplate,
+                    $message,
+                    $this->buildNoticeLink($this->getDocumentPath($upcoming), $frontendConfig->getMoreCaption('de'))
+                );
             }
         } catch (\Exception $e) {
             $output = $e->getMessage();
@@ -372,20 +380,12 @@ class StatusService
                     $from->format($frontendConfig->getFulltimeFormat('de')),
                     $to->format($frontendConfig->getFulltimeFormat('de'))
                 );
-
-                $link = '';
-                $document_path = $this->getDocumentPath($current);
-                if ($document_path) {
-                    $link = [
-                        'url' => $document_path,
-                        'caption' => $frontendConfig->getMoreCaption('de'),
-                    ];
-                }
-
-                $output = $engine->render('@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig', [
-                    'message' => $message,
-                    'link' => $link,
-                ]);
+                $output = $this->renderNoticeTemplate(
+                    $engine,
+                    $this->currentNoticeTemplate,
+                    $message,
+                    $this->buildNoticeLink($this->getDocumentPath($current), $frontendConfig->getMoreCaption('de'))
+                );
             }
         } catch (\Exception $e) {
             $output = $e->getMessage();
@@ -419,8 +419,34 @@ class StatusService
                 sprintf('Maintenance token "%s" was not found. It may be unknown or deleted.', $token),
                 ['token' => $token, 'exception' => $exception]
             );
-
-            throw new \Exception('Invalid token: ' . $token, 0, $exception);
         }
+
+        throw new \Exception('Invalid token: ' . $token, 0, $exception);
+    }
+
+    /**
+     * @return array{url:string, caption:string}|null
+     */
+    private function buildNoticeLink($documentPath, string $caption): ?array
+    {
+        if (!$documentPath) {
+            return null;
+        }
+
+        return [
+            'url' => (string) $documentPath,
+            'caption' => $caption,
+        ];
+    }
+
+    /**
+     * @param array{url:string, caption:string}|null $link
+     */
+    private function renderNoticeTemplate(Environment $engine, string $template, string $message, ?array $link): string
+    {
+        return $engine->render($template, [
+            'message' => $message,
+            'link' => $link,
+        ]);
     }
 }

@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use PHPUnit\Framework\TestCase;
 use Pimcore\Twig\Extension\Templating\HeadLink;
 use Psr\Log\AbstractLogger;
+use Twig\Environment;
+use Twig\Loader\ArrayLoader;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface;
 use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
@@ -712,6 +714,95 @@ final class StatusServiceTest extends TestCase
         self::assertStringContainsString('unknown or deleted', $logger->records[1]['message']);
     }
 
+    public function testIndicateUpcomingMaintenanceRendersCanonicalTwigTemplateWithLinkPayload(): void
+    {
+        Carbon::setTestNow('2026-02-01 08:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_INACTIVE));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $engine = new Environment(new ArrayLoader([
+            '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig' => '{{ message }}|{{ link.caption }}|{{ link.url }}',
+        ]));
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock()
+        );
+
+        self::assertSame(
+            'Upcoming 01.02.2026 09:00 01.02.2026 11:00|Mehr|/de/erp',
+            $service->indicateUpcomingMaintenance($engine)
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function testIndicateUpcomingMaintenanceUsesInjectedTemplatePath(): void
+    {
+        Carbon::setTestNow('2026-02-01 08:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_INACTIVE));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $engine = new Environment(new ArrayLoader([
+            '@App/custom/upcoming.html.twig' => 'custom-template|{{ message }}',
+        ]));
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock(),
+            null,
+            '@App/custom/upcoming.html.twig'
+        );
+
+        self::assertSame(
+            'custom-template|Upcoming 01.02.2026 09:00 01.02.2026 11:00',
+            $service->indicateUpcomingMaintenance($engine)
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function testIndicateCurrentMaintenanceRendersCanonicalTwigTemplateWithoutPhpFallbackOrLinkStub(): void
+    {
+        Carbon::setTestNow('2026-02-01 10:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_ACTIVE, ''));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $engine = new Environment(new ArrayLoader([
+            '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig' => '{{ message }}|{% if link is null %}NULL{% else %}NOT_NULL{% endif %}',
+        ]));
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock()
+        );
+
+        self::assertSame(
+            'Current 01.02.2026 09:00 01.02.2026 11:00|NULL',
+            $service->indicateCurrentMaintenance($engine)
+        );
+
+        Carbon::setTestNow();
+    }
+
     private function createHeadLinkMock(): HeadLink
     {
         $headLink = $this
@@ -746,7 +837,7 @@ final class StatusServiceTest extends TestCase
         };
     }
 
-    private function buildStatusServiceConfig(string $activeStatus): array
+    private function buildStatusServiceConfig(string $activeStatus, string $documentPath = '/de/erp'): array
     {
         return [
             'frontend' => [
@@ -775,7 +866,7 @@ final class StatusServiceTest extends TestCase
                         'from' => ['date' => '01.02.2026', 'time' => '09:00'],
                         'to' => ['date' => '01.02.2026', 'time' => '11:00'],
                     ],
-                    'document' => '/de/erp',
+                    'document' => $documentPath,
                 ],
             ],
         ];

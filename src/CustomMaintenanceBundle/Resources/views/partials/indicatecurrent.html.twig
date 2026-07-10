@@ -1,7 +1,6 @@
 <div class="custommaintenance custommaintenance_current">
     {{ message }}
-    {% if link  %}
-    <a href="{{ link.url }}">{{ link.caption }}</a>
+    {% if link %}
+        <a href="{{ link.url }}">{{ link.caption }}</a>
     {% endif %}
 </div>
-

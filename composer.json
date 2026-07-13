@@ -1,7 +1,7 @@
 {
     "name": "weblizards/custom-maintenance-bundle",
     "type": "pimcore-bundle",
-    "description": "",
+    "description": "• Pimcore bundle for managing native and custom maintenance modes with scheduled windows, admin UI, CLI controls, Twig notices, and runtime status checks.",
     "keywords": [
         "pimcore",
         "pimcore-bundle",
@@ -21,7 +21,8 @@
     ],
     "require": {
         "php": ">=8.1",
-        "pimcore/pimcore": "^10.0"
+        "pimcore/pimcore": "^10.0",
+        "nesbot/carbon": "^2.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.5"
@@ -44,7 +45,8 @@
         }
     },
     "scripts": {
-        "test": "vendor/bin/phpunit"
+        "test": "@php vendor/bin/phpunit",
+        "validate": "composer validate --strict"
     },
     "config": {
         "allow-plugins": {

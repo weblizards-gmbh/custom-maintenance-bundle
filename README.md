@@ -1,5 +1,7 @@
 # Custom Maintenance Bundle
 
+![adminpanel.png](docs/adminpanel.png)
+
 Das Bundle ermöglicht fein granulierte Maintenance-Zustände für Pimcore-basierte Anwendungen. Neben der nativen Pimcore-Maintenance können eigene fachliche Maintenances definiert, geplant, manuell geschaltet und im Anwendungscode oder Frontend ausgewertet werden.
 
 Der aktuelle Stand dieses Repositories zielt auf Pimcore `10.x`, mit Story-basierter Modernisierung für `10.6.9`.
@@ -173,6 +175,8 @@ Hinweise können über die vorhandenen Twig-Funktionen eingebunden werden:
 Das Bundle liefert dafür zwei kanonische Twig-Standard-Templates unter `@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig` und `@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig`.
 
 Die Hinweis-Ausgabe setzt dabei ausschließlich auf Twig; ein PHP-Template-Pfad wird für diese Standard-Hinweise nicht mehr verwendet oder vorausgesetzt.
+
+![notification.png](docs/notification.png)
 
 Die Standardpfade können über die Bundle-Konfiguration unter `weblizards_custom_maintenance.notice_templates` gezielt auf andere Twig-Templates umgebogen werden.
 

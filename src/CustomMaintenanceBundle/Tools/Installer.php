@@ -13,13 +13,6 @@ use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\SettingsStoreP
 
 class Installer extends AbstractInstaller implements InstallerInterface
 {
-    private array $files = [
-        'settings' => [
-            'source' => __DIR__ . '/../Resources/install/custommaintenance.php',
-            'target' => PIMCORE_PRIVATE_VAR . '/config/custommaintenance.php',
-        ],
-    ];
-
     public function canBeInstalled(): bool
     {
         return true;
@@ -35,17 +28,7 @@ class Installer extends AbstractInstaller implements InstallerInterface
 
     public function isInstalled(): bool
     {
-        if ($this->hasSettingsStoreConfig()) {
-            return true;
-        }
-
-        foreach ($this->files as $file) {
-            if (!$this->fileExists($file['target'])) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->hasSharedTranslations();
     }
 
     /**
@@ -54,20 +37,7 @@ class Installer extends AbstractInstaller implements InstallerInterface
     public function install(): void
     {
         parent::install();
-        $this->installAdminTranslations();
         $this->installSharedTranslations();
-        $this->installFiles();
-    }
-
-    /**
-     * @throws \Exception
-     */
-    public function installAdminTranslations(): void
-    {
-        $csv = __DIR__ . '/../Resources/install/admin_translations.csv';
-        if (file_exists($csv)) {
-            Translation::importTranslationsFromFile($csv, Translation::DOMAIN_ADMIN, true, Tool\Admin::getLanguages());
-        }
     }
 
     /**
@@ -81,20 +51,13 @@ class Installer extends AbstractInstaller implements InstallerInterface
         }
     }
 
-    public function installFiles(): void
+    protected function hasSharedTranslations(): bool
     {
-        foreach ($this->files as $file) {
-            $target = $file['target'];
-            $source = $file['source'];
-            if (!$this->fileExists($target)) {
-                copy($source, $target);
-            }
+        try {
+            return Translation::getByKey('custommaintenance.fulltimeformat') !== null;
+        } catch (\Exception $exception) {
+            return false;
         }
-    }
-
-    protected function hasSettingsStoreConfig(): bool
-    {
-        return SettingsStore::get(SettingsStorePersistenceAdapter::KEY, SettingsStorePersistenceAdapter::SCOPE) !== null;
     }
 
     protected function fileExists(string $path): bool
@@ -104,6 +67,6 @@ class Installer extends AbstractInstaller implements InstallerInterface
 
     public function needsReloadAfterInstall(): bool
     {
-        return true;
+        return false;
     }
 }

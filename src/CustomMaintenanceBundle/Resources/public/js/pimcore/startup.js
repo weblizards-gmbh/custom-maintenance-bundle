@@ -1,31 +1,32 @@
 pimcore.registerNS("pimcore.plugin.WeblizardsCustomMaintenanceBundle");
 
-pimcore.plugin.WeblizardsCustomMaintenanceBundle = Class.create(pimcore.plugin.admin, {
-    getClassName: function () {
-        return "pimcore.plugin.WeblizardsCustomMaintenanceBundle";
-    },
-
+pimcore.plugin.WeblizardsCustomMaintenanceBundle = Class.create({
     initialize: function () {
-        pimcore.plugin.broker.registerPlugin(this);
+        document.addEventListener(pimcore.events.preMenuBuild, this.preMenuBuild.bind(this));
     },
 
-    pimcoreReady: function (params, broker) {
-        var toolbar = pimcore.globalmanager.get("layout_toolbar");
+    preMenuBuild: function (e) {
+        var menu = e.detail.menu;
 
-        var custommaintenance_action = new Ext.Action({
-            id:"extras_custommaintenance_button",
+        if (!menu.extras || !menu.extras.items) {
+            return;
+        }
+
+        menu.extras.items.push({
+            itemId: "pimcore_menu_extras_custommaintenance",
             text: t('Custom Maintenance'),
             iconCls: "custommaintenance_icon",
-            handler: function(){
-                try {
-                    pimcore.globalmanager.get("custommaintenance_adminpanel").activate();
-                } catch (e) {
-                    pimcore.globalmanager.add("custommaintenance_adminpanel", new custommaintenance.AdminPanel());
-                }
-
-            }
+            priority: 42,
+            handler: this.openAdminPanel.bind(this)
         });
-        toolbar.extrasMenu.add(custommaintenance_action);
+    },
+
+    openAdminPanel: function () {
+        try {
+            pimcore.globalmanager.get("custommaintenance_adminpanel").activate();
+        } catch (e) {
+            pimcore.globalmanager.add("custommaintenance_adminpanel", new custommaintenance.AdminPanel());
+        }
     }
 });
 

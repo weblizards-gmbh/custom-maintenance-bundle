@@ -85,7 +85,7 @@ custommaintenance.AdminPanel = Class.create({
                     },
                     {
                         xtype: 'fieldset',
-                        title: t('custommaintenance.Frontend'),
+                        title: t('custommaintenance.frontend'),
                         collapsible: true,
                         collapsed: false,
                         autoHeight: true,

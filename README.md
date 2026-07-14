@@ -4,7 +4,8 @@
 
 Das Bundle ermöglicht fein granulierte Maintenance-Zustände für Pimcore-basierte Anwendungen. Neben der nativen Pimcore-Maintenance können eigene fachliche Maintenances definiert, geplant, manuell geschaltet und im Anwendungscode oder Frontend ausgewertet werden.
 
-Der aktuelle Stand dieses Repositories zielt auf Pimcore `10.x`, mit Story-basierter Modernisierung für `10.6.9`.
+Der aktuelle Stand dieses Repositories zielt auf Pimcore `11.x`.
+Für Pimcore 10.x existiert ein eigener Branch: https://github.com/weblizards-gmbh/custom-maintenance-bundle/tree/Pimcore-10.x
 
 ## Installation
 
@@ -12,11 +13,31 @@ Der aktuelle Stand dieses Repositories zielt auf Pimcore `10.x`, mit Story-basie
 composer require weblizards/custom-maintenance-bundle
 ```
 
-Anschließend das Bundle in Pimcore aktivieren und installieren.
+Anschließend das Bundle in Pimcore aktivieren.
+Hierzu folgende Zeile in `config/bundles.php` hinzufügen:
+
+```php
+return [
+    // ...
+    \Weblizards\CustomMaintenanceBundle\WeblizardsCustomMaintenanceBundle::class => ['all' => true],
+];
+```
+
+Dann das Bundle installieren:
+
+```shell
+bin/console pimcore:bundle:install WeblizardsCustomMaintenanceBundle
+```
+
+Nun die Migrations ausführen:
+
+```shell
+bin/console doctrine:migrations:migrate "Weblizards\CustomMaintenanceBundle\Migrations\Version20260713114100"
+```
 
 ## Konfiguration
 
-Die kanonische Persistenz liegt seit der Pimcore-10-Modernisierung im Pimcore Settings Store.
+Die kanonische Persistenz liegt im Pimcore Settings Store.
 
 Rolling-Migration-Verhalten:
 

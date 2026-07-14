@@ -15,22 +15,17 @@ use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
 
 /**
  * Class AdminpanelController.
- *
- * @Route("/adminpanel")
  */
+#[Route("/adminpanel")]
 class AdminpanelController extends UserAwareController
 {
-    /**
-     * @Route("/load")
-     */
+    #[Route("/load")]
     public function loadAction(MaintenanceConfigManager $configManager): JsonResponse
     {
         return new JsonResponse($configManager->getAdminData());
     }
 
-    /**
-     * @Route("/save")
-     */
+    #[Route("/save")]
     public function saveAction(Request $request, MaintenanceConfigManager $configManager, Translator $translator): JsonResponse
     {
         try {
@@ -40,7 +35,7 @@ class AdminpanelController extends UserAwareController
 
             $response_data = [
                 'success' => true,
-                'message' => $translator->trans('custommaintenance_adminpanel_save_success'),
+                'message' => $translator->trans('custommaintenance_adminpanel_save_success', [], 'admin'),
             ];
         } catch (\Exception $e) {
             $response_data = [

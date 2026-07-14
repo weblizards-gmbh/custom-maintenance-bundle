@@ -5,28 +5,28 @@ declare(strict_types=1);
 namespace Weblizards\CustomMaintenanceBundle\Command;
 
 use Pimcore\Console\AbstractCommand;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Weblizards\CustomMaintenanceBundle\Service\StatusService;
 
+#[AsCommand(
+    name: 'weblizards:custommaintenance:control',
+    description: 'control custom maintenances, e.g. (de)activation',
+    aliases: ['maintenance']
+)]
 class ControlCommand extends AbstractCommand
 {
-    protected StatusService $statusService;
-
-    protected static $defaultName = 'weblizards:custommaintenance:control';
-
-    public function __construct(StatusService $statusService)
+    public function __construct(private readonly StatusService $statusService)
     {
         parent::__construct();
-        $this->statusService = $statusService;
     }
 
     protected function configure(): void
     {
         $this
-            ->setDescription('control custom maintenances, e.g. (de)activation')
             ->addArgument('task', InputArgument::REQUIRED, 'The task to fulfill. Valid tasks are list-tokens, show-status, activate, deactivate')
             ->addOption('token', null, InputOption::VALUE_REQUIRED, 'The token of the maintenance')
             ->addOption('porcelain', 'p', InputOption::VALUE_NONE, 'Produce machine-readable output')

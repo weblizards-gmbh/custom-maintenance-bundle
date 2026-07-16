@@ -189,6 +189,7 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertSame('10:00', $adminData['pimcore']['planned']['to']['time']);
         self::assertSame('/de/pimcore', $adminData['pimcore']['document']);
         self::assertSame('ERP', $adminData['custom']['prices']['description']);
+        self::assertSame('false', $adminData['custom']['prices']['temporary_active']);
         self::assertSame('03.01.2026', $adminData['custom']['prices']['show_info_from']['date']);
         self::assertSame('09:00', $adminData['custom']['prices']['show_info_from']['time']);
         self::assertSame('04.01.2026', $adminData['custom']['prices']['planned']['from']['date']);
@@ -369,7 +370,8 @@ final class MaintenanceConfigManagerTest extends TestCase
             'pimcore_to_date' => '2026-02-02',
             'pimcore_to_time' => '2026-02-02 09:30',
             'pimcore_document' => '/de/pimcore',
-            'prices_active' => 'true',
+            'prices_maintenance_mode' => 'scheduled',
+            'prices_temporary_active' => 'true',
             'prices_fixed' => 'true',
             'prices_description' => 'ERP',
             'prices_show_info' => 'always',
@@ -386,8 +388,10 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertSame('automatic', $persistedData['pimcore']['show_info']);
         self::assertSame('01.02.2026', $persistedData['pimcore']['show_info_from']['date']);
         self::assertSame('07:15', $persistedData['pimcore']['show_info_from']['time']);
-        self::assertSame('true', $persistedData['custom']['prices']['active']);
+        self::assertSame('false', $persistedData['custom']['prices']['active']);
+        self::assertSame('true', $persistedData['custom']['prices']['temporary_active']);
         self::assertSame('true', $persistedData['custom']['prices']['fixed']);
+        self::assertSame('02.02.2026', $persistedData['custom']['prices']['planned']['from']['date']);
         self::assertSame('/de/erp-new', $persistedData['custom']['prices']['document']);
         self::assertSame('preserve-me', $persistedData['pimcore']['legacy_flag']);
         self::assertSame('keep-me', $persistedData['custom']['prices']['legacy_note']);
@@ -448,7 +452,8 @@ final class MaintenanceConfigManagerTest extends TestCase
             'pimcore_to_time' => '2026-02-02 09:30',
             'pimcore_document' => '/de/pimcore',
             'prices_token' => 'prices',
-            'prices_active' => 'true',
+            'prices_maintenance_mode' => 'scheduled',
+            'prices_temporary_active' => 'true',
             'prices_fixed' => 'false',
             'prices_description' => 'ERP',
             'prices_show_info' => 'automatic',
@@ -459,7 +464,8 @@ final class MaintenanceConfigManagerTest extends TestCase
             'prices_to_date' => '2026-02-02',
             'prices_to_time' => '2026-02-02 12:00',
             'prices_document' => '/de/erp-new',
-            'search_active' => 'false',
+            'search_maintenance_mode' => 'inactive',
+            'search_temporary_active' => 'false',
             'search_fixed' => 'false',
             'search_description' => '',
             'search_token' => 'search',
@@ -475,6 +481,7 @@ final class MaintenanceConfigManagerTest extends TestCase
 
         self::assertSame('keep-root', $persistedData['legacy_root']);
         self::assertSame('false', $persistedData['custom']['search']['active']);
+        self::assertSame('false', $persistedData['custom']['search']['temporary_active']);
         self::assertSame('false', $persistedData['custom']['search']['fixed']);
         self::assertSame('', $persistedData['custom']['search']['description']);
         self::assertSame('never', $persistedData['custom']['search']['show_info']);
@@ -485,6 +492,7 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertSame('', $persistedData['custom']['search']['planned']['to']['date']);
         self::assertSame('', $persistedData['custom']['search']['planned']['to']['time']);
         self::assertSame('', $persistedData['custom']['search']['document']);
+        self::assertSame('true', $persistedData['custom']['prices']['temporary_active']);
         self::assertSame('/de/erp-new', $persistedData['custom']['prices']['document']);
     }
 
@@ -540,7 +548,8 @@ final class MaintenanceConfigManagerTest extends TestCase
             'pimcore_to_time' => '2026-02-02 09:30',
             'pimcore_document' => '/de/pimcore',
             'prices_token' => 'catalog',
-            'prices_active' => 'false',
+            'prices_maintenance_mode' => 'scheduled',
+            'prices_temporary_active' => 'false',
             'prices_fixed' => 'true',
             'prices_description' => 'Catalog',
             'prices_show_info' => 'always',
@@ -556,11 +565,12 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertSame('keep-root', $persistedData['legacy_root']);
         self::assertArrayNotHasKey('prices', $persistedData['custom']);
         self::assertSame('false', $persistedData['custom']['catalog']['active']);
+        self::assertSame('false', $persistedData['custom']['catalog']['temporary_active']);
         self::assertSame('true', $persistedData['custom']['catalog']['fixed']);
         self::assertSame('Catalog', $persistedData['custom']['catalog']['description']);
         self::assertSame('always', $persistedData['custom']['catalog']['show_info']);
-        self::assertSame('03.02.2026', $persistedData['custom']['catalog']['show_info_from']['date']);
-        self::assertSame('06:30', $persistedData['custom']['catalog']['show_info_from']['time']);
+        self::assertSame('', $persistedData['custom']['catalog']['show_info_from']['date']);
+        self::assertSame('', $persistedData['custom']['catalog']['show_info_from']['time']);
         self::assertSame('04.02.2026', $persistedData['custom']['catalog']['planned']['from']['date']);
         self::assertSame('12:00', $persistedData['custom']['catalog']['planned']['to']['time']);
         self::assertSame('/de/catalog', $persistedData['custom']['catalog']['document']);
@@ -1023,6 +1033,136 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertCount(2, $persistedData['custom']);
     }
 
+    public function testSaveFromAdminPayloadRejectsScheduledMaintenanceWithoutStartDateTime(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'false',
+                        'temporary_active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Zeitgesteuerte Maintenance benötigt einen Startzeitpunkt mit Datum und Uhrzeit.');
+
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'prices',
+            'prices_maintenance_mode' => 'scheduled',
+            'prices_temporary_active' => 'false',
+            'prices_fixed' => 'false',
+            'prices_description' => 'ERP',
+            'prices_show_info' => 'never',
+            'prices_show_info_from_date' => '',
+            'prices_show_info_from_time' => '',
+            'prices_from_date' => '',
+            'prices_from_time' => '',
+            'prices_to_date' => '',
+            'prices_to_time' => '',
+            'prices_document' => '/de/erp',
+        ]);
+    }
+
+    public function testSaveFromAdminPayloadRejectsPartialScheduledMaintenanceEndDateTime(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'false',
+                        'temporary_active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Das optionale Ende einer zeitgesteuerten Maintenance muss Datum und Uhrzeit vollständig enthalten.');
+
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'prices',
+            'prices_maintenance_mode' => 'scheduled',
+            'prices_temporary_active' => 'false',
+            'prices_fixed' => 'false',
+            'prices_description' => 'ERP',
+            'prices_show_info' => 'never',
+            'prices_show_info_from_date' => '',
+            'prices_show_info_from_time' => '',
+            'prices_from_date' => '2026-02-02',
+            'prices_from_time' => '2026-02-02 10:00',
+            'prices_to_date' => '2026-02-02',
+            'prices_to_time' => '',
+            'prices_document' => '/de/erp',
+        ]);
+    }
+
     public function testSetCustomStatusWritesOnlyToSettingsStore(): void
     {
         $persistedData = null;
@@ -1061,6 +1201,172 @@ final class MaintenanceConfigManagerTest extends TestCase
         $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
         $manager->setCustomStatus('prices', 'true');
 
-        self::assertSame('true', $persistedData['custom']['prices']['active']);
+        self::assertSame('false', $persistedData['custom']['prices']['active']);
+        self::assertSame('true', $persistedData['custom']['prices']['temporary_active']);
+    }
+
+    public function testSaveFromAdminPayloadRejectsAutomaticNoticeWithoutStartDateTime(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [
+                    'prices' => [
+                        'active' => 'false',
+                        'temporary_active' => 'false',
+                        'fixed' => 'false',
+                        'description' => 'ERP',
+                        'show_info' => 'never',
+                        'show_info_from' => ['date' => '', 'time' => ''],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Zeitgeplanter Hinweis benötigt einen Startzeitpunkt mit Datum und Uhrzeit.');
+
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'prices',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'prices_token' => 'prices',
+            'prices_maintenance_mode' => 'inactive',
+            'prices_temporary_active' => 'false',
+            'prices_fixed' => 'false',
+            'prices_description' => 'ERP',
+            'prices_show_info' => 'automatic',
+            'prices_show_info_from_date' => '',
+            'prices_show_info_from_time' => '',
+            'prices_from_date' => '',
+            'prices_from_time' => '',
+            'prices_to_date' => '',
+            'prices_to_time' => '',
+            'prices_document' => '/de/erp',
+        ]);
+    }
+
+    public function testSaveFromAdminPayloadRejectsPimcoreTimingWithoutCompleteStartDateTime(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Die Pimcore-Zeitsteuerung benötigt einen Startzeitpunkt mit Datum und Uhrzeit.');
+
+        $manager->saveFromAdminPayload([
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '',
+            'pimcore_from_time' => '',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+        ]);
+    }
+
+    public function testSaveFromAdminPayloadPersistsLocalFormattedUiDateTimeValuesWithoutTimezoneShift(): void
+    {
+        $persistedData = null;
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [],
+                'custom' => [],
+            ]);
+        $settingsStore
+            ->expects(self::once())
+            ->method('save')
+            ->willReturnCallback(static function (array $data) use (&$persistedData): void {
+                $persistedData = $data;
+            });
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $manager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
+        $manager->saveFromAdminPayload([
+            'custom_tokens' => 'search',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'automatic',
+            'pimcore_show_info_from_date' => '2026-07-17',
+            'pimcore_show_info_from_time' => '01:30',
+            'pimcore_from_date' => '2026-07-17',
+            'pimcore_from_time' => '01:30',
+            'pimcore_to_date' => '2026-07-18',
+            'pimcore_to_time' => '03:15',
+            'pimcore_document' => '/de/pimcore',
+            'search_maintenance_mode' => 'scheduled',
+            'search_temporary_active' => 'false',
+            'search_fixed' => 'false',
+            'search_description' => 'Search',
+            'search_show_info' => 'automatic',
+            'search_show_info_from_date' => '2026-07-17',
+            'search_show_info_from_time' => '01:30',
+            'search_from_date' => '2026-07-17',
+            'search_from_time' => '01:30',
+            'search_to_date' => '2026-07-18',
+            'search_to_time' => '03:15',
+            'search_document' => '/de/search',
+        ]);
+
+        self::assertSame('17.07.2026', $persistedData['pimcore']['show_info_from']['date']);
+        self::assertSame('01:30', $persistedData['pimcore']['show_info_from']['time']);
+        self::assertSame('17.07.2026', $persistedData['pimcore']['planned']['from']['date']);
+        self::assertSame('01:30', $persistedData['pimcore']['planned']['from']['time']);
+        self::assertSame('18.07.2026', $persistedData['pimcore']['planned']['to']['date']);
+        self::assertSame('03:15', $persistedData['pimcore']['planned']['to']['time']);
+        self::assertSame('17.07.2026', $persistedData['custom']['search']['planned']['from']['date']);
+        self::assertSame('01:30', $persistedData['custom']['search']['planned']['from']['time']);
+        self::assertSame('18.07.2026', $persistedData['custom']['search']['planned']['to']['date']);
+        self::assertSame('03:15', $persistedData['custom']['search']['planned']['to']['time']);
     }
 }

@@ -79,17 +79,7 @@ final class MaintenanceConfigManager
             return $this->configSet;
         }
 
-        $rawData = $this->getCurrentRawData();
-        $customEntries = [];
-        foreach ($rawData['custom'] as $token => $entry) {
-            $customEntries[$token] = MaintenanceEntry::fromLegacyCustomConfig($token, $entry);
-        }
-
-        $this->configSet = new MaintenanceConfigSet(
-            MaintenanceEntry::fromLegacyPimcoreConfig($rawData[Config::TOKEN_PIMCORE]),
-            $customEntries,
-            FrontendConfig::fromLegacyArray($rawData['frontend'])
-        );
+        $this->configSet = $this->buildConfigSetFromRawData($this->getCurrentRawData());
 
         return $this->configSet;
     }
@@ -103,7 +93,58 @@ final class MaintenanceConfigManager
         return $data;
     }
 
+    public function getPreviewConfigSetFromAdminPayload(array $values): MaintenanceConfigSet
+    {
+        return $this->buildConfigSetFromRawData($this->buildRawDataFromAdminPayload($values));
+    }
+
     public function saveFromAdminPayload(array $values): void
+    {
+        $this->persistLegacyData($this->buildRawDataFromAdminPayload($values));
+    }
+
+    public function setCustomStatus(string $token, string $status): void
+    {
+        $data = $this->getCurrentRawData();
+        if (!array_key_exists($token, $data['custom'])) {
+            throw new \InvalidArgumentException('Invalid token: ' . $token);
+        }
+
+        if ($status === StatusService::STATUS_ACTIVE) {
+            $data['custom'][$token]['temporary_active'] = StatusService::STATUS_ACTIVE;
+            $this->persistLegacyData($data);
+
+            return;
+        }
+
+        $data['custom'][$token]['temporary_active'] = StatusService::STATUS_INACTIVE;
+
+        if (($data['custom'][$token]['active'] ?? StatusService::STATUS_INACTIVE) === StatusService::STATUS_ACTIVE) {
+            $data['custom'][$token]['active'] = StatusService::STATUS_INACTIVE;
+        } elseif ($this->isStartedOpenEndedSchedule($data['custom'][$token])) {
+            $now = Carbon::now();
+            $data['custom'][$token]['planned']['to']['date'] = $now->format('d.m.Y');
+            $data['custom'][$token]['planned']['to']['time'] = $now->format('H:i');
+        }
+
+        $this->persistLegacyData($data);
+    }
+
+    private function buildConfigSetFromRawData(array $rawData): MaintenanceConfigSet
+    {
+        $customEntries = [];
+        foreach ($rawData['custom'] as $token => $entry) {
+            $customEntries[$token] = MaintenanceEntry::fromLegacyCustomConfig($token, $entry);
+        }
+
+        return new MaintenanceConfigSet(
+            MaintenanceEntry::fromLegacyPimcoreConfig($rawData[Config::TOKEN_PIMCORE]),
+            $customEntries,
+            FrontendConfig::fromLegacyArray($rawData['frontend'])
+        );
+    }
+
+    private function buildRawDataFromAdminPayload(array $values): array
     {
         $this->assertPimcoreEntryIsProtected($values);
 
@@ -118,8 +159,25 @@ final class MaintenanceConfigManager
         $data['frontend']['fulltimeformat']['de'] = (string) $values['frontend_fulltimeformat'];
 
         $data['pimcore']['show_info'] = (string) $values['pimcore_show_info'];
-        $data['pimcore']['show_info_from']['date'] = $this->convertJsDateTime((string) $values['pimcore_show_info_from_date'], 'date');
-        $data['pimcore']['show_info_from']['time'] = $this->convertJsDateTime((string) $values['pimcore_show_info_from_time'], 'time');
+        [$pimcoreShowInfoFromDate, $pimcoreShowInfoFromTime] = $this->resolveNoticeTimingPayload(
+            (string) $values['pimcore_show_info'],
+            (string) $values['pimcore_show_info_from_date'],
+            (string) $values['pimcore_show_info_from_time']
+        );
+        $data['pimcore']['show_info_from']['date'] = $pimcoreShowInfoFromDate;
+        $data['pimcore']['show_info_from']['time'] = $pimcoreShowInfoFromTime;
+        $this->assertCompleteDateTimePair(
+            (string) $values['pimcore_from_date'],
+            (string) $values['pimcore_from_time'],
+            'Die Pimcore-Zeitsteuerung benötigt einen Startzeitpunkt mit Datum und Uhrzeit.',
+            true
+        );
+        $this->assertCompleteDateTimePair(
+            (string) $values['pimcore_to_date'],
+            (string) $values['pimcore_to_time'],
+            'Die Pimcore-Zeitsteuerung benötigt einen Endzeitpunkt mit Datum und Uhrzeit.',
+            true
+        );
         $data['pimcore']['planned']['from']['date'] = $this->convertJsDateTime((string) $values['pimcore_from_date'], 'date');
         $data['pimcore']['planned']['from']['time'] = $this->convertJsDateTime((string) $values['pimcore_from_time'], 'time');
         $data['pimcore']['planned']['to']['date'] = $this->convertJsDateTime((string) $values['pimcore_to_date'], 'date');
@@ -139,10 +197,49 @@ final class MaintenanceConfigManager
                 ? $originalCustomData[$formToken]
                 : $this->createDefaultCustomEntry();
 
-            $entry['active'] = $this->getPayloadValue(
+            $maintenanceMode = $this->getPayloadValue($values, $formToken . '_maintenance_mode');
+            if ($maintenanceMode === '') {
+                $entry['active'] = $this->getPayloadValue(
+                    $values,
+                    $formToken . '_active',
+                    (string) ($entry['active'] ?? 'false')
+                );
+                $entry['planned']['from']['date'] = $this->convertOptionalJsDateTime(
+                    $this->getPayloadValue($values, $formToken . '_from_date'),
+                    'date'
+                );
+                $entry['planned']['from']['time'] = $this->convertOptionalJsDateTime(
+                    $this->getPayloadValue($values, $formToken . '_from_time'),
+                    'time'
+                );
+                $entry['planned']['to']['date'] = $this->convertOptionalJsDateTime(
+                    $this->getPayloadValue($values, $formToken . '_to_date'),
+                    'date'
+                );
+                $entry['planned']['to']['time'] = $this->convertOptionalJsDateTime(
+                    $this->getPayloadValue($values, $formToken . '_to_time'),
+                    'time'
+                );
+            } else {
+                [$activeStatus, $plannedFromDate, $plannedFromTime, $plannedToDate, $plannedToTime] = $this->resolveMaintenanceModePayload(
+                    $maintenanceMode,
+                    $this->getPayloadValue($values, $formToken . '_from_date'),
+                    $this->getPayloadValue($values, $formToken . '_from_time'),
+                    $this->getPayloadValue($values, $formToken . '_to_date'),
+                    $this->getPayloadValue($values, $formToken . '_to_time')
+                );
+
+                $entry['active'] = $activeStatus;
+                $entry['planned']['from']['date'] = $plannedFromDate;
+                $entry['planned']['from']['time'] = $plannedFromTime;
+                $entry['planned']['to']['date'] = $plannedToDate;
+                $entry['planned']['to']['time'] = $plannedToTime;
+            }
+
+            $entry['temporary_active'] = $this->getPayloadValue(
                 $values,
-                $formToken . '_active',
-                (string) ($entry['active'] ?? 'false')
+                $formToken . '_temporary_active',
+                (string) ($entry['temporary_active'] ?? 'false')
             );
             $entry['fixed'] = $this->getPayloadValue(
                 $values,
@@ -159,30 +256,13 @@ final class MaintenanceConfigManager
                 $formToken . '_show_info',
                 (string) ($entry['show_info'] ?? 'never')
             );
-            $entry['show_info_from']['date'] = $this->convertOptionalJsDateTime(
+            [$showInfoFromDate, $showInfoFromTime] = $this->resolveNoticeTimingPayload(
+                $entry['show_info'],
                 $this->getPayloadValue($values, $formToken . '_show_info_from_date'),
-                'date'
+                $this->getPayloadValue($values, $formToken . '_show_info_from_time')
             );
-            $entry['show_info_from']['time'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $formToken . '_show_info_from_time'),
-                'time'
-            );
-            $entry['planned']['from']['date'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $formToken . '_from_date'),
-                'date'
-            );
-            $entry['planned']['from']['time'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $formToken . '_from_time'),
-                'time'
-            );
-            $entry['planned']['to']['date'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $formToken . '_to_date'),
-                'date'
-            );
-            $entry['planned']['to']['time'] = $this->convertOptionalJsDateTime(
-                $this->getPayloadValue($values, $formToken . '_to_time'),
-                'time'
-            );
+            $entry['show_info_from']['date'] = $showInfoFromDate;
+            $entry['show_info_from']['time'] = $showInfoFromTime;
             $entry['document'] = $this->getPayloadValue(
                 $values,
                 $formToken . '_document',
@@ -193,18 +273,8 @@ final class MaintenanceConfigManager
         }
 
         $data['custom'] = $updatedCustomData;
-        $this->persistLegacyData($data);
-    }
 
-    public function setCustomStatus(string $token, string $status): void
-    {
-        $data = $this->getCurrentRawData();
-        if (!array_key_exists($token, $data['custom'])) {
-            throw new \InvalidArgumentException('Invalid token: ' . $token);
-        }
-
-        $data['custom'][$token]['active'] = $status;
-        $this->persistLegacyData($data);
+        return $data;
     }
 
     private function persistLegacyData(array $data): void
@@ -307,6 +377,7 @@ final class MaintenanceConfigManager
     {
         return [
             'active' => 'false',
+            'temporary_active' => 'false',
             'fixed' => 'false',
             'description' => '',
             'show_info' => 'never',
@@ -348,7 +419,7 @@ final class MaintenanceConfigManager
 
     private function convertJsDateTime(string $dateTime, string $target): string
     {
-        $convertedDateTime = new Carbon($dateTime);
+        $convertedDateTime = Carbon::parse($dateTime)->setTimezone(date_default_timezone_get());
 
         if ($target === 'date') {
             return $convertedDateTime->format('d.m.Y');
@@ -361,6 +432,69 @@ final class MaintenanceConfigManager
         throw new \InvalidArgumentException('Invalid target');
     }
 
+    /**
+     * @return array{0:string,1:string,2:string,3:string,4:string}
+     */
+    private function resolveMaintenanceModePayload(
+        string $maintenanceMode,
+        string $fromDate,
+        string $fromTime,
+        string $toDate,
+        string $toTime
+    ): array {
+        switch ($maintenanceMode) {
+            case 'active':
+                return ['true', '', '', '', ''];
+
+            case 'scheduled':
+                $this->assertCompleteDateTimePair(
+                    $fromDate,
+                    $fromTime,
+                    'Zeitgesteuerte Maintenance benötigt einen Startzeitpunkt mit Datum und Uhrzeit.',
+                    true
+                );
+                $this->assertCompleteDateTimePair(
+                    $toDate,
+                    $toTime,
+                    'Das optionale Ende einer zeitgesteuerten Maintenance muss Datum und Uhrzeit vollständig enthalten.'
+                );
+
+                return [
+                    'false',
+                    $this->convertOptionalJsDateTime($fromDate, 'date'),
+                    $this->convertOptionalJsDateTime($fromTime, 'time'),
+                    $this->convertOptionalJsDateTime($toDate, 'date'),
+                    $this->convertOptionalJsDateTime($toTime, 'time'),
+                ];
+
+            case 'inactive':
+            default:
+                return ['false', '', '', '', ''];
+        }
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    private function resolveNoticeTimingPayload(string $showInfoMode, string $fromDate, string $fromTime): array
+    {
+        if ($showInfoMode !== 'automatic') {
+            return ['', ''];
+        }
+
+        $this->assertCompleteDateTimePair(
+            $fromDate,
+            $fromTime,
+            'Zeitgeplanter Hinweis benötigt einen Startzeitpunkt mit Datum und Uhrzeit.',
+            true
+        );
+
+        return [
+            $this->convertOptionalJsDateTime($fromDate, 'date'),
+            $this->convertOptionalJsDateTime($fromTime, 'time'),
+        ];
+    }
+
     private function convertOptionalJsDateTime(string $dateTime, string $target): string
     {
         if (trim($dateTime) === '') {
@@ -368,5 +502,41 @@ final class MaintenanceConfigManager
         }
 
         return $this->convertJsDateTime($dateTime, $target);
+    }
+
+    private function assertCompleteDateTimePair(
+        string $dateTimeDate,
+        string $dateTimeTime,
+        string $message,
+        bool $required = false
+    ): void
+    {
+        $hasDate = trim($dateTimeDate) !== '';
+        $hasTime = trim($dateTimeTime) !== '';
+
+        if ($hasDate xor $hasTime) {
+            throw new \InvalidArgumentException($message);
+        }
+
+        if ($required && !$hasDate && !$hasTime) {
+            throw new \InvalidArgumentException($message);
+        }
+    }
+
+    private function isStartedOpenEndedSchedule(array $entry): bool
+    {
+        $planned = (array) ($entry['planned'] ?? []);
+        $from = (array) ($planned['from'] ?? []);
+        $to = (array) ($planned['to'] ?? []);
+        $fromDate = trim((string) ($from['date'] ?? ''));
+        $fromTime = trim((string) ($from['time'] ?? ''));
+        $toDate = trim((string) ($to['date'] ?? ''));
+        $toTime = trim((string) ($to['time'] ?? ''));
+
+        if ($fromDate === '' || $fromTime === '' || $toDate !== '' || $toTime !== '') {
+            return false;
+        }
+
+        return Carbon::now()->greaterThanOrEqualTo(Carbon::createFromFormat('d.m.Y H:i', $fromDate . ' ' . $fromTime));
     }
 }

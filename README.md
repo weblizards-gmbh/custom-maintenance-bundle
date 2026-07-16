@@ -32,7 +32,7 @@ bin/console pimcore:bundle:install WeblizardsCustomMaintenanceBundle
 Nun die Migrations ausführen:
 
 ```shell
-bin/console doctrine:migrations:migrate "Weblizards\CustomMaintenanceBundle\Migrations\Version20260713114100"
+bin/console doctrine:migrations:migrate
 ```
 
 ## Konfiguration
@@ -75,13 +75,28 @@ Im aktuellen Stand lassen sich insbesondere diese Bereiche konfigurieren:
 - `frontend.more.de` für die Beschriftung des optionalen Mehr-Links
 - `frontend.fulltimeformat.de` für das Ausgabeformat von Datum und Uhrzeit
 - `pimcore.show_info`, `pimcore.show_info_from`, `pimcore.planned.from`, `pimcore.planned.to`, `pimcore.document` für den nativen Pimcore-Sonderfall
-- `custom.<token>.active`, `custom.<token>.fixed`, `custom.<token>.description`, `custom.<token>.show_info`, `custom.<token>.show_info_from`, `custom.<token>.planned`, `custom.<token>.document` für jede eigene Maintenance-Art
+- `custom.<token>.active`, `custom.<token>.temporary_active`, `custom.<token>.fixed`, `custom.<token>.description`, `custom.<token>.show_info`, `custom.<token>.show_info_from`, `custom.<token>.planned`, `custom.<token>.document` für jede eigene Maintenance-Art
 
 Für `show_info` sind im aktuellen Verhalten insbesondere die Werte `never`, `always` und `automatic` relevant.
+
+- `never` blendet den Hinweis stets aus
+- `always` blendet den Hinweis dauerhaft ein
+- `automatic` aktiviert eine unabhängige Hinweis-Zeitplanung ab `show_info_from`; ist der Zeitpunkt erreicht, bleibt der Hinweis sichtbar, auch wenn keine geplante Maintenance mehr bevorsteht
+
+Im Admin-UI werden ungültige Zeitangaben inzwischen bereits vor dem Speichern abgefangen:
+
+- `zeitgesteuert` bei Custom-Maintenances benötigt immer einen vollständigen Startzeitpunkt (`ab`)
+- ein optionales Ende (`bis`) muss, wenn gesetzt, immer aus Datum und Uhrzeit vollständig bestehen
+- `automatic` bei Hinweisen benötigt immer einen vollständigen Startzeitpunkt
+- dieselbe Validierungslogik gilt auch für den Pimcore-Sondereintrag
+- das Admin-Panel enthält zusätzlich einen Diagnose-Bereich, der den aktuellen Formularstand gegen einen frei gewählten Simulationszeitpunkt auswertet, ohne etwas zu speichern
+
+Die fachliche Trennung zwischen eigentlicher Maintenance-Schaltlogik, Hinweis-Logik und der Semantik von `fixed` ist unter [docs/switching_logic.md](docs/switching_logic.md) beschrieben.
 
 Neue Custom-Maintenance-Arten starten mit konservativen Defaults:
 
 - `active: false`
+- `temporary_active: false`
 - `fixed: false`
 - `show_info: never`
 - Datums- und Zeitfelder leer
@@ -131,6 +146,7 @@ Beispiel des gespeicherten Payloads:
   "custom": {
     "prices": {
       "active": "false",
+      "temporary_active": "false",
       "fixed": "false",
       "description": "ERP",
       "show_info": "never",
@@ -180,6 +196,7 @@ Wichtig dabei:
 Die Konfiguration kann auf mehreren Wegen genutzt oder verändert werden:
 
 - über das Pimcore-Admin-Panel des Bundles für `frontend`, `pimcore` und `custom`
+- über das Diagnose-Werkzeug im Admin-Panel, um ungespeicherte Konfigurationsstände schreibgeschützt gegen einen Simulationszeitpunkt zu prüfen
 - programmatisch über den `StatusService` für Statuswechsel von Custom-Tokens
 - indirekt über die Rolling Migration, wenn bestehende Legacy-Konfigurationen beim ersten erfolgreichen Schreibvorgang in den Settings Store übernommen werden
 
@@ -196,6 +213,8 @@ Hinweise können über die vorhandenen Twig-Funktionen eingebunden werden:
 Das Bundle liefert dafür zwei kanonische Twig-Standard-Templates unter `@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig` und `@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig`.
 
 Die Hinweis-Ausgabe setzt dabei ausschließlich auf Twig; ein PHP-Template-Pfad wird für diese Standard-Hinweise nicht mehr verwendet oder vorausgesetzt.
+
+Für unabhängig sichtbare Hinweise aus `show_info = automatic` ohne bevorstehende Maintenance nutzt das Bundle derzeit weiterhin den vorhandenen `upcoming`-Text und das zugehörige Twig-Template. Fachlich ist der Hinweis dabei sichtbar, aber nicht an eine künftige Maintenance gekoppelt.
 
 ![notification.png](docs/notification.png)
 
@@ -216,11 +235,20 @@ Die Twig-Funktion `isMaintenanceActive()` delegiert dabei direkt an denselben `S
 Die zentrale Runtime-API liegt im `StatusService`.
 
 - `getValidTokens()` liefert die Custom-Tokens.
-- `getStatus($token)` liefert den gespeicherten Status (`true` oder `false` als String-Konstanten des Services) für einen Custom-Token; `pimcore` ist hier absichtlich kein gültiger Token.
-- `setStatus($token, $state, $overrideFixed = false)` setzt den Status für einen Custom-Token; `fixed`-Maintenances können optional explizit übersteuert werden, `pimcore` jedoch nicht.
+- `getStatus($token)` liefert den gespeicherten Basis-Status (`true` oder `false` als String-Konstanten des Services) für einen Custom-Token; `pimcore` ist hier absichtlich kein gültiger Token.
+- `setStatus($token, $state, $overrideFixed = false)` steuert den technischen Aktiv-Override für einen Custom-Token; `fixed` schützt technische Schaltpfade vor blinden Zustandsänderungen und kann optional explizit übersteuert werden; `pimcore` ist über diese API nicht schaltbar.
 - `isActive($token)` prüft, ob eine Maintenance aktiv ist; ohne Argument wird über alle konfigurierten Tokens ausgewertet, der reservierte Token `pimcore` wird dabei übersprungen.
+- `getDiagnosis($referenceTime, $adminPayload = null)` wertet die Schaltlogik gegen einen expliziten Simulationszeitpunkt aus; optional kann dabei ein ungespeicherter Admin-Payload schreibgeschützt als Vorschau verwendet werden.
 - `isFixedMode()`, `isHandsOff()`, `showUpcoming()`, `getDocumentPath()`, `getMaintenanceFrom()`, `getMaintenanceTo()` und `getConfigForToken()` arbeiten auf Maintenance-Entries und akzeptieren daher sowohl Custom-Tokens als auch den reservierten Token `pimcore`.
 - Unbekannte oder gelöschte Tokens bleiben ein Fehlerpfad und werden zusätzlich im Anwendungslog auf Fehlerniveau protokolliert.
+
+Wichtig zur Deaktivierung:
+
+- ein technisches `deactivate` entfernt immer den technischen Aktiv-Override
+- ist eine offene Zeitsteuerung ohne `bis` bereits angelaufen, beendet ein zulässiger technischer Abschalt-Impuls diese offene Phase, indem der aktuelle Zeitpunkt als Ende gesetzt wird
+- dadurch bleibt offene Zeitsteuerung operativ beendbar, ohne einen separaten technischen Deaktivierungs-Override einzuführen
+
+Die fachliche Bedeutung von `fixed`, die Trennung zwischen Admin-UI, Zeitsteuerung und technischen Schaltpfaden sowie die geplante Schärfung der Schaltlogik sind in [docs/switching_logic.md](docs/switching_logic.md) dokumentiert.
 
 Beispiel:
 

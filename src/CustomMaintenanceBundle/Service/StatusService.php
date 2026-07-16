@@ -18,6 +18,10 @@ class StatusService
 
     public const STATUS_INACTIVE = 'false';
 
+    private const IMMEDIATE_NOTICE_CAPTION = 'ab sofort';
+
+    private const OPEN_ENDED_NOTICE_CAPTION = 'bis auf Weiteres';
+
     private const DEFAULT_UPCOMING_NOTICE_TEMPLATE = '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig';
 
     private const DEFAULT_CURRENT_NOTICE_TEMPLATE = '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig';
@@ -81,10 +85,10 @@ class StatusService
      */
     public function setStatus(string $token, string $status, bool $overrideFixed = false): void
     {
-        if (!in_array($token, $this->getValidTokens())) {
+        if (!in_array($token, $this->getValidTokens(), true)) {
             throw new \Exception('Invalid token: ' . $token);
         }
-        if (!in_array($status, $this->getValidStates())) {
+        if (!in_array($status, $this->getValidStates(), true)) {
             throw new \Exception('Invalid status: ' . $status);
         }
         if ($this->isFixedMode($token) && !$overrideFixed) {
@@ -128,7 +132,17 @@ class StatusService
      */
     public function isActive($token = null): bool
     {
-        if ($token) {
+        return $this->isActiveAt($token);
+    }
+
+    /**
+     * @param array|string $token
+     *
+     * @throws \Exception if token is invalid
+     */
+    public function isActiveAt($token = null, ?Carbon $referenceTime = null): bool
+    {
+        if (null !== $token) {
             if (is_array($token)) {
                 $tokens = $token;
             } else {
@@ -138,6 +152,7 @@ class StatusService
             $tokens = $this->configManager->getConfigSet()->getAllTokens();
         }
 
+        $effectiveReferenceTime = $this->resolveReferenceTime($referenceTime);
         $result = false;
 
         foreach ($tokens as $token) {
@@ -147,7 +162,7 @@ class StatusService
             }
 
             $entry = $this->getMaintenanceEntry($token);
-            if ($entry->isMarkedActive() || $this->isTimeslotEntered($entry)) {
+            if ($this->isEntryEffectivelyActiveAt($entry, $effectiveReferenceTime)) {
                 $result = true;
 
                 break;
@@ -199,30 +214,7 @@ class StatusService
      */
     public function showUpcoming(string $token): bool
     {
-        $noticeConfig = $this->getMaintenanceEntry($token)->getNoticeConfig();
-
-        $result = false;
-
-        switch ($noticeConfig->getShowInfo()) {
-            case 'always':
-                $result = true;
-
-                break;
-
-            case 'never':
-                $result = false;
-
-                break;
-
-            case 'automatic':
-                $now = Carbon::now();
-                $from = $noticeConfig->getShowInfoFrom()->toCarbon();
-                $result = $now->greaterThan($from);
-
-                break;
-        }
-
-        return $result;
+        return $this->showsUpcomingAt($this->getMaintenanceEntry($token), $this->resolveReferenceTime());
     }
 
     /**
@@ -279,6 +271,24 @@ class StatusService
         return $this->getMaintenanceEntry($token)->toLegacyArray();
     }
 
+    public function getDiagnosis(?Carbon $referenceTime = null, ?array $adminPayload = null): array
+    {
+        $effectiveReferenceTime = $this->resolveReferenceTime($referenceTime);
+        $configSet = null === $adminPayload
+            ? $this->configManager->getConfigSet()
+            : $this->configManager->getPreviewConfigSetFromAdminPayload($adminPayload);
+
+        $entries = [];
+        foreach ($configSet->getAllTokens() as $token) {
+            $entries[] = $this->buildEntryDiagnosis($configSet->getEntry($token), $effectiveReferenceTime);
+        }
+
+        return [
+            'evaluated_at' => $effectiveReferenceTime->format('d.m.Y H:i'),
+            'entries' => $entries,
+        ];
+    }
+
     public function toCarbon(array $date_time): Carbon
     {
         return Carbon::createFromFormat('d.m.Y H:i', $date_time['date'] . ' ' . $date_time['time']);
@@ -301,42 +311,63 @@ class StatusService
 
     public function indicateUpcomingMaintenance(Environment $engine): string
     {
-        $earliest = Carbon::now()->addDays(365);
-        $upcoming = null;
+        $referenceTime = $this->resolveReferenceTime();
         $configSet = $this->configManager->getConfigSet();
         $tokens = $configSet->getAllTokens();
+        $candidate = null;
 
-        $now = Carbon::now();
         $output = '';
 
         try {
             foreach ($tokens as $token) {
-                if ($this->showUpcoming($token)) {
-                    $from = $this->getMaintenanceFrom($token);
-                    $end = $this->getMaintenanceTo($token);
-                    if ($from->lessThan($earliest) && $end->greaterThan($now)) {
-                        $earliest = $from;
-                        $upcoming = $token;
-                    }
+                $entry = $this->getMaintenanceEntry($token);
+                if (!$this->showsUpcomingAt($entry, $referenceTime)) {
+                    continue;
+                }
+
+                $entryCandidate = $this->buildUpcomingNoticeCandidate($entry, $referenceTime);
+                if (null === $entryCandidate) {
+                    continue;
+                }
+
+                if ($this->shouldPreferUpcomingNoticeCandidate($entryCandidate, $candidate)) {
+                    $candidate = $entryCandidate;
                 }
             }
 
-            if ($upcoming) {
-                $from = $this->getMaintenanceFrom($upcoming);
-                $to = $this->getMaintenanceTo($upcoming);
+            if (null !== $candidate) {
+                $entry = $candidate['entry'];
                 $frontendConfig = $configSet->getFrontendConfig();
-                $text = $frontendConfig->getUpcomingMessage('de');
-                $message = sprintf(
-                    $text,
-                    $from->format($frontendConfig->getFulltimeFormat('de')),
-                    $to->format($frontendConfig->getFulltimeFormat('de'))
-                );
-                $output = $this->renderNoticeTemplate(
-                    $engine,
-                    $this->upcomingNoticeTemplate,
-                    $message,
-                    $this->buildNoticeLink($this->getDocumentPath($upcoming), $frontendConfig->getMoreCaption('de'))
-                );
+
+                if ($candidate['state'] === 'upcoming') {
+                    $from = $entry->getSchedule()->getFrom()->toCarbon();
+                    $to = $this->getConfiguredScheduleEnd($entry);
+                    $text = $frontendConfig->getUpcomingMessage('de');
+                    $message = sprintf(
+                        $text,
+                        $from->format($frontendConfig->getFulltimeFormat('de')),
+                        $this->formatOptionalMaintenanceEnd($to, $frontendConfig->getFulltimeFormat('de'))
+                    );
+                    $output = $this->renderNoticeTemplate(
+                        $engine,
+                        $this->upcomingNoticeTemplate,
+                        $message,
+                        $this->buildNoticeLink($entry->getNoticeConfig()->getDocument(), $frontendConfig->getMoreCaption('de'))
+                    );
+                } else {
+                    $text = $frontendConfig->getUpcomingMessage('de');
+                    $message = sprintf(
+                        $text,
+                        $this->formatVisibleNoticeStartAt($entry, $frontendConfig->getFulltimeFormat('de'), $referenceTime),
+                        self::OPEN_ENDED_NOTICE_CAPTION
+                    );
+                    $output = $this->renderNoticeTemplate(
+                        $engine,
+                        $this->upcomingNoticeTemplate,
+                        $message,
+                        $this->buildNoticeLink($entry->getNoticeConfig()->getDocument(), $frontendConfig->getMoreCaption('de'))
+                    );
+                }
             }
         } catch (\Exception $e) {
             $output = $e->getMessage();
@@ -349,8 +380,9 @@ class StatusService
     {
         $configSet = $this->configManager->getConfigSet();
         $tokens = $configSet->getAllTokens();
+        $referenceTime = $this->resolveReferenceTime();
 
-        $earliest = Carbon::tomorrow();
+        $earliest = $referenceTime->copy()->addDay();
         $current = null;
 
         $output = '';
@@ -360,8 +392,8 @@ class StatusService
             foreach ($tokens as $token) {
                 $entry = $this->getMaintenanceEntry($token);
 
-                if ('never' != $entry->getNoticeConfig()->getShowInfo() && $this->isActive($token)) {
-                    $from = $this->getMaintenanceFrom($token);
+                if ('never' != $entry->getNoticeConfig()->getShowInfo() && $this->isActiveAt($token, $referenceTime)) {
+                    $from = $this->getCurrentMaintenanceSortStartAt($entry, $referenceTime);
                     if ($from->lessThan($earliest)) {
                         $earliest = $from;
                         $current = $token;
@@ -370,15 +402,15 @@ class StatusService
             }
 
             if ($current) {
-                $from = $this->getMaintenanceFrom($current);
-                $to = $this->getMaintenanceTo($current);
+                $entry = $this->getMaintenanceEntry($current);
+                $to = $this->getConfiguredScheduleEnd($entry);
                 $frontendConfig = $configSet->getFrontendConfig();
 
                 $text = $frontendConfig->getCurrentMessage('de');
                 $message = sprintf(
                     $text,
-                    $from->format($frontendConfig->getFulltimeFormat('de')),
-                    $to->format($frontendConfig->getFulltimeFormat('de'))
+                    $this->formatCurrentMaintenanceStartAt($entry, $frontendConfig->getFulltimeFormat('de'), $referenceTime),
+                    $this->formatOptionalMaintenanceEnd($to, $frontendConfig->getFulltimeFormat('de'))
                 );
                 $output = $this->renderNoticeTemplate(
                     $engine,
@@ -401,10 +433,101 @@ class StatusService
      */
     protected function isTimeslotEntered(MaintenanceEntry $entry): bool
     {
-        $from = $entry->getSchedule()->getFrom()->toCarbon();
-        $to = $entry->getSchedule()->getTo()->toCarbon();
+        return $this->isTimeslotEnteredAt($entry, $this->resolveReferenceTime());
+    }
 
-        return Carbon::now()->between($from, $to);
+    protected function isTimeslotEnteredAt(MaintenanceEntry $entry, Carbon $referenceTime): bool
+    {
+        $schedule = $entry->getSchedule();
+        $fromDateTime = $schedule->getFrom();
+        if (!$fromDateTime->isConfigured()) {
+            return false;
+        }
+
+        $from = $fromDateTime->toCarbon();
+        $toDateTime = $schedule->getTo();
+        if (!$toDateTime->isConfigured()) {
+            return $referenceTime->greaterThanOrEqualTo($from);
+        }
+
+        return $referenceTime->between($from, $toDateTime->toCarbon());
+    }
+
+    private function isEntryEffectivelyActiveAt(MaintenanceEntry $entry, Carbon $referenceTime): bool
+    {
+        return $entry->isTemporaryActivationActive() || $entry->isMarkedActive() || $this->isTimeslotEnteredAt($entry, $referenceTime);
+    }
+
+    private function getConfiguredScheduleStart(MaintenanceEntry $entry): ?Carbon
+    {
+        $fromDateTime = $entry->getSchedule()->getFrom();
+        if (!$fromDateTime->isConfigured()) {
+            return null;
+        }
+
+        return $fromDateTime->toCarbon();
+    }
+
+    private function getConfiguredScheduleEnd(MaintenanceEntry $entry): ?Carbon
+    {
+        $toDateTime = $entry->getSchedule()->getTo();
+        if (!$toDateTime->isConfigured()) {
+            return null;
+        }
+
+        return $toDateTime->toCarbon();
+    }
+
+    private function getCurrentMaintenanceSortStartAt(MaintenanceEntry $entry, Carbon $referenceTime): Carbon
+    {
+        $from = $this->getConfiguredScheduleStart($entry);
+        if (null === $from) {
+            return $referenceTime->copy();
+        }
+
+        if ($entry->isTemporaryActivationActive() && $from->greaterThan($referenceTime)) {
+            return $referenceTime->copy();
+        }
+
+        return $from;
+    }
+
+    private function formatCurrentMaintenanceStartAt(MaintenanceEntry $entry, string $format, Carbon $referenceTime): string
+    {
+        $from = $this->getConfiguredScheduleStart($entry);
+        if (null === $from) {
+            return self::IMMEDIATE_NOTICE_CAPTION;
+        }
+
+        if ($entry->isTemporaryActivationActive() && $from->greaterThan($referenceTime)) {
+            return self::IMMEDIATE_NOTICE_CAPTION;
+        }
+
+        return $from->format($format);
+    }
+
+    private function formatVisibleNoticeStartAt(MaintenanceEntry $entry, string $format, Carbon $referenceTime): string
+    {
+        $from = $entry->getNoticeConfig()->getShowInfoFrom();
+        if (!$from->isConfigured()) {
+            return self::IMMEDIATE_NOTICE_CAPTION;
+        }
+
+        $fromCarbon = $from->toCarbon();
+        if ($fromCarbon->greaterThan($referenceTime)) {
+            return $fromCarbon->format($format);
+        }
+
+        return self::IMMEDIATE_NOTICE_CAPTION;
+    }
+
+    private function formatOptionalMaintenanceEnd(?Carbon $to, string $format): string
+    {
+        if (null === $to) {
+            return self::OPEN_ENDED_NOTICE_CAPTION;
+        }
+
+        return $to->format($format);
     }
 
     /**
@@ -448,5 +571,212 @@ class StatusService
             'message' => $message,
             'link' => $link,
         ]);
+    }
+
+    private function resolveReferenceTime(?Carbon $referenceTime = null): Carbon
+    {
+        return ($referenceTime ?? Carbon::now())->copy();
+    }
+
+    private function showsUpcomingAt(MaintenanceEntry $entry, Carbon $referenceTime): bool
+    {
+        $noticeConfig = $entry->getNoticeConfig();
+
+        switch ($noticeConfig->getShowInfo()) {
+            case 'always':
+                return true;
+
+            case 'never':
+                return false;
+
+            case 'automatic':
+                if (!$noticeConfig->getShowInfoFrom()->isConfigured()) {
+                    return false;
+                }
+
+                return $referenceTime->greaterThan($noticeConfig->getShowInfoFrom()->toCarbon());
+        }
+
+        return false;
+    }
+
+    private function buildEntryDiagnosis(MaintenanceEntry $entry, Carbon $referenceTime): array
+    {
+        $maintenance = $this->buildMaintenanceDiagnosis($entry, $referenceTime);
+        $notice = $this->buildNoticeDiagnosis($entry, $referenceTime, $maintenance['active']);
+
+        return [
+            'token' => $entry->getToken()->toString(),
+            'description' => $entry->getDescription(),
+            'fixed' => $entry->isFixedMode(),
+            'maintenance' => $maintenance,
+            'notice' => $notice,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     mode:string,
+     *     effective:string,
+     *     reason:string,
+     *     active:bool,
+     *     temporary_active:bool,
+     *     scheduled_from:?string,
+     *     scheduled_to:?string
+     * }
+     */
+    private function buildMaintenanceDiagnosis(MaintenanceEntry $entry, Carbon $referenceTime): array
+    {
+        $reason = 'inactive';
+        if ($entry->isTemporaryActivationActive()) {
+            $reason = 'temporary_activation';
+        } elseif ($entry->isMarkedActive()) {
+            $reason = 'manual_activation';
+        } elseif ($this->isTimeslotEnteredAt($entry, $referenceTime)) {
+            $reason = 'scheduled_window';
+        }
+
+        return [
+            'mode' => $this->deriveMaintenanceMode($entry),
+            'effective' => $reason === 'inactive' ? 'inactive' : 'active',
+            'reason' => $reason,
+            'active' => $reason !== 'inactive',
+            'temporary_active' => $entry->isTemporaryActivationActive(),
+            'scheduled_from' => $this->formatConfiguredDateTime($entry->getSchedule()->getFrom()),
+            'scheduled_to' => $this->formatConfiguredDateTime($entry->getSchedule()->getTo()),
+        ];
+    }
+
+    /**
+     * @return array{
+     *     mode:string,
+     *     effective:string,
+     *     reason:string,
+     *     visible:bool,
+     *     show_from:?string,
+     *     document:string
+     * }
+     */
+    private function buildNoticeDiagnosis(MaintenanceEntry $entry, Carbon $referenceTime, bool $maintenanceActive): array
+    {
+        $noticeConfig = $entry->getNoticeConfig();
+        $mode = $noticeConfig->getShowInfo();
+        $effective = 'inactive';
+        $reason = 'inactive';
+
+        if ($mode === 'never') {
+            $reason = 'never';
+        } elseif ($maintenanceActive) {
+            $effective = 'current';
+            $reason = 'active_maintenance';
+        } elseif ($mode === 'always') {
+            if ($this->isMaintenanceUpcomingAt($entry, $referenceTime)) {
+                $effective = 'upcoming';
+                $reason = 'always';
+            } else {
+                $effective = 'visible';
+                $reason = 'always';
+            }
+        } elseif ($mode === 'automatic') {
+            if (!$noticeConfig->getShowInfoFrom()->isConfigured()) {
+                $reason = 'notice_unconfigured';
+            } elseif (!$this->showsUpcomingAt($entry, $referenceTime)) {
+                $reason = 'notice_window_not_started';
+            } elseif ($this->isMaintenanceUpcomingAt($entry, $referenceTime)) {
+                $effective = 'upcoming';
+                $reason = 'notice_schedule';
+            } else {
+                $effective = 'visible';
+                $reason = 'notice_schedule';
+            }
+        }
+
+        return [
+            'mode' => $mode,
+            'effective' => $effective,
+            'reason' => $reason,
+            'visible' => $effective !== 'inactive',
+            'show_from' => $this->formatConfiguredDateTime($noticeConfig->getShowInfoFrom()),
+            'document' => $noticeConfig->getDocument(),
+        ];
+    }
+
+    private function deriveMaintenanceMode(MaintenanceEntry $entry): string
+    {
+        if ($entry->isMarkedActive()) {
+            return 'active';
+        }
+
+        if ($entry->getSchedule()->getFrom()->isConfigured()) {
+            return 'scheduled';
+        }
+
+        return 'inactive';
+    }
+
+    private function isMaintenanceUpcomingAt(MaintenanceEntry $entry, Carbon $referenceTime): bool
+    {
+        $from = $this->getConfiguredScheduleStart($entry);
+        if (null === $from || !$from->greaterThan($referenceTime)) {
+            return false;
+        }
+
+        $to = $this->getConfiguredScheduleEnd($entry);
+
+        return null === $to || $to->greaterThan($referenceTime);
+    }
+
+    /**
+     * @return array{entry:MaintenanceEntry,state:string,sort_at:Carbon}|null
+     */
+    private function buildUpcomingNoticeCandidate(MaintenanceEntry $entry, Carbon $referenceTime): ?array
+    {
+        if ($this->isMaintenanceUpcomingAt($entry, $referenceTime)) {
+            $from = $this->getConfiguredScheduleStart($entry);
+            if (null === $from) {
+                return null;
+            }
+
+            return [
+                'entry' => $entry,
+                'state' => 'upcoming',
+                'sort_at' => $from,
+            ];
+        }
+
+        $noticeStart = $entry->getNoticeConfig()->getShowInfoFrom();
+        $sortAt = $noticeStart->isConfigured() ? $noticeStart->toCarbon() : $referenceTime->copy();
+
+        return [
+            'entry' => $entry,
+            'state' => 'visible',
+            'sort_at' => $sortAt,
+        ];
+    }
+
+    /**
+     * @param array{entry:MaintenanceEntry,state:string,sort_at:Carbon}|null $current
+     * @param array{entry:MaintenanceEntry,state:string,sort_at:Carbon} $candidate
+     */
+    private function shouldPreferUpcomingNoticeCandidate(array $candidate, ?array $current): bool
+    {
+        if (null === $current) {
+            return true;
+        }
+
+        if ($candidate['state'] !== $current['state']) {
+            return $candidate['state'] === 'upcoming';
+        }
+
+        return $candidate['sort_at']->lessThan($current['sort_at']);
+    }
+
+    private function formatConfiguredDateTime($dateTime): ?string
+    {
+        if (!$dateTime->isConfigured()) {
+            return null;
+        }
+
+        return $dateTime->toCarbon()->format('d.m.Y H:i');
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Weblizards\CustomMaintenanceBundle\Test\Unit\Controller;
 
+use Pimcore\Twig\Extension\Templating\HeadLink;
 use PHPUnit\Framework\TestCase;
 use Pimcore\Bundle\AdminBundle\Controller\AdminController;
 use Pimcore\Controller\UserAwareController;
@@ -13,6 +14,7 @@ use Weblizards\CustomMaintenanceBundle\Controller\AdminpanelController;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface;
 use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
+use Weblizards\CustomMaintenanceBundle\Service\StatusService;
 
 final class AdminpanelControllerTest extends TestCase
 {
@@ -501,5 +503,144 @@ final class AdminpanelControllerTest extends TestCase
             ],
             json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR)
         );
+    }
+
+    public function testDiagnoseActionEvaluatesUnsavedFormPayloadWithoutPersisting(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $headLink = $this
+            ->getMockBuilder(HeadLink::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__call'])
+            ->getMock();
+        $headLink
+            ->expects(self::once())
+            ->method('__call')
+            ->with('appendStylesheet', ['/bundles/weblizardscustommaintenance/css/frontend.css']);
+
+        $statusService = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $headLink);
+        $controller = new AdminpanelController();
+        $request = new Request([
+            'data' => json_encode([
+                'custom_tokens' => 'search',
+                'diagnosis_reference_date' => '2026-02-01',
+                'diagnosis_reference_time' => '2026-02-01 10:30',
+                'frontend_indication_upcoming' => 'Upcoming %s %s',
+                'frontend_indication_current' => 'Current %s %s',
+                'frontend_more' => 'Mehr',
+                'frontend_fulltimeformat' => 'd.m.Y H:i',
+                'pimcore_show_info' => 'never',
+                'pimcore_show_info_from_date' => '2026-02-01',
+                'pimcore_show_info_from_time' => '2026-02-01 07:15',
+                'pimcore_from_date' => '2026-02-02',
+                'pimcore_from_time' => '2026-02-02 08:00',
+                'pimcore_to_date' => '2026-02-02',
+                'pimcore_to_time' => '2026-02-02 09:30',
+                'pimcore_document' => '/de/pimcore',
+                'search_token' => 'search',
+                'search_maintenance_mode' => 'scheduled',
+                'search_temporary_active' => 'false',
+                'search_fixed' => 'false',
+                'search_description' => 'Search',
+                'search_show_info' => 'automatic',
+                'search_show_info_from_date' => '2026-02-01',
+                'search_show_info_from_time' => '2026-02-01 08:00',
+                'search_from_date' => '2026-02-01',
+                'search_from_time' => '2026-02-01 11:00',
+                'search_to_date' => '2026-02-01',
+                'search_to_time' => '2026-02-01 12:30',
+                'search_document' => '/de/search',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        $response = $controller->diagnoseAction($request, $statusService);
+        $payload = json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertTrue($payload['success']);
+        self::assertSame('01.02.2026 10:30', $payload['diagnosis']['evaluated_at']);
+        self::assertSame('search', $payload['diagnosis']['entries'][1]['token']);
+        self::assertSame('scheduled', $payload['diagnosis']['entries'][1]['maintenance']['mode']);
+        self::assertSame('upcoming', $payload['diagnosis']['entries'][1]['notice']['effective']);
+    }
+
+    public function testDiagnoseActionUsesLocalFormattedUiDateAndTimeAsSimulationTime(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [],
+            ]);
+        $settingsStore->expects(self::never())->method('save');
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $headLink = $this
+            ->getMockBuilder(HeadLink::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__call'])
+            ->getMock();
+        $headLink
+            ->expects(self::once())
+            ->method('__call')
+            ->with('appendStylesheet', ['/bundles/weblizardscustommaintenance/css/frontend.css']);
+
+        $statusService = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $headLink);
+        $controller = new AdminpanelController();
+        $request = new Request([
+            'data' => json_encode([
+                'diagnosis_reference_date' => '2026-07-17',
+                'diagnosis_reference_time' => '01:30',
+                'frontend_indication_upcoming' => 'Upcoming %s %s',
+                'frontend_indication_current' => 'Current %s %s',
+                'frontend_more' => 'Mehr',
+                'frontend_fulltimeformat' => 'd.m.Y H:i',
+                'pimcore_show_info' => 'never',
+                'pimcore_show_info_from_date' => '2026-02-01',
+                'pimcore_show_info_from_time' => '2026-02-01 07:15',
+                'pimcore_from_date' => '2026-02-02',
+                'pimcore_from_time' => '2026-02-02 08:00',
+                'pimcore_to_date' => '2026-02-02',
+                'pimcore_to_time' => '2026-02-02 09:30',
+                'pimcore_document' => '/de/pimcore',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        $response = $controller->diagnoseAction($request, $statusService);
+        $payload = json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertTrue($payload['success']);
+        self::assertSame('17.07.2026 01:30', $payload['diagnosis']['evaluated_at']);
     }
 }

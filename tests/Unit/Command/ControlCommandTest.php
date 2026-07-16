@@ -18,7 +18,7 @@ final class ControlCommandTest extends TestCase
 {
     public function testDefaultCommandNameRemainsStable(): void
     {
-        self::assertSame('weblizards:custommaintenance:control', ControlCommand::getDefaultName());
+        self::assertSame('weblizards:custommaintenance:control|maintenance', ControlCommand::getDefaultName());
     }
 
     public function testListTokensUsesTheSharedStatusService(): void
@@ -45,9 +45,9 @@ final class ControlCommandTest extends TestCase
         $statusService = $this->createMock(StatusService::class);
         $statusService
             ->expects(self::exactly(2))
-            ->method('getStatus')
+            ->method('isActive')
             ->with('prices')
-            ->willReturn(StatusService::STATUS_ACTIVE);
+            ->willReturn(true);
 
         $command = new ControlCommand($statusService);
 
@@ -115,7 +115,9 @@ final class ControlCommandTest extends TestCase
 
     public function testDeactivateReturnsErrorWhenFixedProtectionBlocksRollback(): void
     {
-        $command = $this->createRealControlCommand($this->buildCliConfig(StatusService::STATUS_ACTIVE, StatusService::STATUS_ACTIVE));
+        $command = $this->createRealControlCommand(
+            $this->buildCliConfig(StatusService::STATUS_INACTIVE, StatusService::STATUS_ACTIVE, StatusService::STATUS_ACTIVE)
+        );
         $tester = new CommandTester($command);
 
         $exitCode = $tester->execute(['task' => 'deactivate', '--token' => 'prices', '--porcelain' => true]);
@@ -129,7 +131,9 @@ final class ControlCommandTest extends TestCase
 
     public function testOverrideFixedAllowsPorcelainDeactivationViaSharedStatusPath(): void
     {
-        $command = $this->createRealControlCommand($this->buildCliConfig(StatusService::STATUS_ACTIVE, StatusService::STATUS_ACTIVE));
+        $command = $this->createRealControlCommand(
+            $this->buildCliConfig(StatusService::STATUS_INACTIVE, StatusService::STATUS_ACTIVE, StatusService::STATUS_ACTIVE)
+        );
 
         $tester = new CommandTester($command);
         $exitCode = $tester->execute([
@@ -192,6 +196,63 @@ final class ControlCommandTest extends TestCase
         self::assertSame("inactive\n", $showAfterDeactivateTester->getDisplay());
     }
 
+    public function testShowStatusUsesEffectiveStatusForOpenEndedTimeControlledMaintenance(): void
+    {
+        $command = $this->createRealControlCommand([
+            'frontend' => [
+                'indication_upcoming' => ['de' => 'Upcoming %s %s'],
+                'indication_current' => ['de' => 'Current %s %s'],
+                'more' => ['de' => 'Mehr'],
+                'fulltimeformat' => ['de' => 'd.m.Y H:i'],
+            ],
+            'pimcore' => [
+                'show_info' => 'never',
+                'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                'planned' => [
+                    'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                ],
+                'document' => '',
+            ],
+            'custom' => [
+                'prices' => [
+                    'active' => StatusService::STATUS_INACTIVE,
+                    'fixed' => StatusService::STATUS_INACTIVE,
+                    'description' => 'ERP',
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.02.2026', 'time' => '09:00'],
+                        'to' => ['date' => '', 'time' => ''],
+                    ],
+                    'document' => '',
+                ],
+                'orders' => [
+                    'active' => StatusService::STATUS_INACTIVE,
+                    'fixed' => StatusService::STATUS_INACTIVE,
+                    'description' => 'Orders',
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+            ],
+        ]);
+
+        $tester = new CommandTester($command);
+        \Carbon\Carbon::setTestNow('2026-02-01 12:30');
+
+        try {
+            self::assertSame(0, $tester->execute(['task' => 'show-status', '--token' => 'prices', '--porcelain' => true]));
+            self::assertSame("active\n", $tester->getDisplay());
+        } finally {
+            \Carbon\Carbon::setTestNow();
+        }
+    }
+
     private function createRealControlCommand(?array $initialConfig): ControlCommand
     {
         $store = new class($initialConfig) implements ConfigPersistenceInterface {
@@ -235,7 +296,11 @@ final class ControlCommandTest extends TestCase
         return new ControlCommand($statusService);
     }
 
-    private function buildCliConfig(string $activeStatus, string $fixedStatus = StatusService::STATUS_INACTIVE): array
+    private function buildCliConfig(
+        string $activeStatus,
+        string $fixedStatus = StatusService::STATUS_INACTIVE,
+        string $temporaryActiveStatus = StatusService::STATUS_INACTIVE
+    ): array
     {
         return [
             'frontend' => [
@@ -256,6 +321,7 @@ final class ControlCommandTest extends TestCase
             'custom' => [
                 'prices' => [
                     'active' => $activeStatus,
+                    'temporary_active' => $temporaryActiveStatus,
                     'fixed' => $fixedStatus,
                     'description' => 'ERP',
                     'show_info' => 'never',
@@ -268,6 +334,7 @@ final class ControlCommandTest extends TestCase
                 ],
                 'orders' => [
                     'active' => StatusService::STATUS_INACTIVE,
+                    'temporary_active' => StatusService::STATUS_INACTIVE,
                     'fixed' => StatusService::STATUS_INACTIVE,
                     'description' => 'Orders',
                     'show_info' => 'never',

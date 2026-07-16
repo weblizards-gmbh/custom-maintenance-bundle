@@ -124,6 +124,54 @@ custommaintenance.AdminPanel = Class.create({
                         ]
                     },
                     {
+                        xtype: 'fieldset',
+                        title: this.translateWithFallback("custommaintenance.diagnosis", "Diagnose"),
+                        collapsible: true,
+                        collapsed: false,
+                        autoHeight: true,
+                        defaults: {
+                            labelWidth: 250
+                        },
+                        items: [
+                            {
+                                xtype: "displayfield",
+                                value: this.translateWithFallback(
+                                    "custommaintenance.diagnosis_help",
+                                    "Simuliert die aktuelle Konfiguration zu einem frei wählbaren Zeitpunkt, ohne etwas zu speichern."
+                                ),
+                                cls: "x-form-display-field"
+                            },
+                            {
+                                xtype: 'fieldcontainer',
+                                layout: 'hbox',
+                                fieldLabel: this.translateWithFallback("custommaintenance.diagnosis_reference", "Simulationszeitpunkt"),
+                                combineErrors: true,
+                                name: 'diagnosis_reference_container',
+                                items: [
+                                    this.createDateField("diagnosis_reference_date", new Date()),
+                                    this.createTimeField("diagnosis_reference_time", new Date())
+                                ]
+                            },
+                            {
+                                xtype: "button",
+                                text: this.translateWithFallback("custommaintenance.diagnosis_run", "Diagnose aktualisieren"),
+                                handler: this.runDiagnosis.bind(this),
+                                iconCls: "pimcore_icon_search"
+                            },
+                            {
+                                xtype: "box",
+                                id: "custommaintenance_diagnosis_result",
+                                autoEl: {
+                                    tag: "div",
+                                    html: ""
+                                },
+                                style: {
+                                    marginTop: "12px"
+                                }
+                            }
+                        ]
+                    },
+                    {
                         xtype:'fieldset',
                         title: this.translateWithFallback(
                             "custommaintenance.pimcore_protected_title",
@@ -278,6 +326,7 @@ custommaintenance.AdminPanel = Class.create({
             this.panel.add(this.layout);
             tabPanel.setActiveTab("custommaintenance_adminpanel");
             pimcore.layout.refresh();
+            this.runDiagnosis();
         }
 
         return this.panel;
@@ -288,6 +337,20 @@ custommaintenance.AdminPanel = Class.create({
         var disabled = form.findField(token + "_show_info").getValue() !== "automatic";
         form.findField(token + "_show_info_from_date").setHidden(disabled);
         form.findField(token + "_show_info_from_time").setHidden(disabled);
+    },
+
+    applyMaintenanceMode: function(token) {
+        var form = this.layout.getForm();
+        var modeField = form.findField(token + "_maintenance_mode");
+        var timeControlFieldset = Ext.getCmp(token + "_timecontrol_fieldset");
+        var scheduled = modeField && modeField.getValue() === "scheduled";
+
+        if (timeControlFieldset) {
+            timeControlFieldset.setVisible(scheduled);
+            timeControlFieldset.setDisabled(!scheduled);
+        }
+
+        this.refreshFormLayout();
     },
 
     addCustomMaintenance: function () {
@@ -339,17 +402,49 @@ custommaintenance.AdminPanel = Class.create({
     },
 
     save: function () {
-        this.persistAdminValues(this.getFormValues());
+        var values = this.getFormValues();
+
+        if (!this.validateBeforeSave(values)) {
+            return;
+        }
+
+        this.persistAdminValues(values);
     },
 
     getFormValues: function (overrides) {
-        var values = this.layout.getForm().getFieldValues();
+        var form = this.layout.getForm();
+        var values = form.getFieldValues();
+        var fields = form.getFields().items;
+        var i;
+
+        for (i = 0; i < fields.length; i++) {
+            this.normalizeDateLikeFieldValue(fields[i], values);
+        }
 
         if (!overrides) {
             return values;
         }
 
         return Ext.apply(values, overrides);
+    },
+
+    normalizeDateLikeFieldValue: function (field, values) {
+        var value;
+
+        if (!field || !field.getName || !field.getName()) {
+            return;
+        }
+
+        if (field.isXType && field.isXType("datefield")) {
+            value = field.getValue();
+            values[field.getName()] = value instanceof Date ? Ext.Date.format(value, "Y-m-d") : values[field.getName()];
+            return;
+        }
+
+        if (field.isXType && field.isXType("timefield")) {
+            value = field.getValue();
+            values[field.getName()] = value instanceof Date ? Ext.Date.format(value, "H:i") : values[field.getName()];
+        }
     },
 
     refreshFormLayout: function () {
@@ -397,6 +492,345 @@ custommaintenance.AdminPanel = Class.create({
         });
     },
 
+    runDiagnosis: function () {
+        var values = this.getFormValues();
+
+        if (!this.validateBeforeSave(values)) {
+            return;
+        }
+
+        this.requestDiagnosis(values);
+    },
+
+    requestDiagnosis: function (values) {
+        var resultBox = Ext.getCmp("custommaintenance_diagnosis_result");
+        if (resultBox) {
+            resultBox.update(this.renderDiagnosisLoading());
+        }
+
+        Ext.Ajax.request({
+            url: "/admin/weblizards_custom_maintenance/adminpanel/diagnose",
+            method: "post",
+            params: {
+                data: Ext.encode(values)
+            },
+            success: function (response) {
+                var res;
+
+                try {
+                    res = Ext.decode(response.responseText);
+                } catch (e) {
+                    this.showValidationError(this.translateWithFallback(
+                        "custommaintenance.diagnosis_error",
+                        "Die Diagnose konnte nicht gelesen werden."
+                    ));
+                    return;
+                }
+
+                if (!res.success) {
+                    this.showValidationError(res.message);
+                    return;
+                }
+
+                this.updateDiagnosisResult(res.diagnosis);
+            }.bind(this),
+            failure: function () {
+                this.showValidationError(this.translateWithFallback(
+                    "custommaintenance.diagnosis_error",
+                    "Die Diagnose konnte nicht gelesen werden."
+                ));
+            }.bind(this)
+        });
+    },
+
+    updateDiagnosisResult: function (diagnosis) {
+        var resultBox = Ext.getCmp("custommaintenance_diagnosis_result");
+        if (!resultBox) {
+            return;
+        }
+
+        resultBox.update(this.renderDiagnosisHtml(diagnosis));
+        this.refreshFormLayout();
+    },
+
+    renderDiagnosisLoading: function () {
+        return "<div><strong>" + this.escapeHtml(this.translateWithFallback(
+            "custommaintenance.diagnosis_loading",
+            "Diagnose wird berechnet ..."
+        )) + "</strong></div>";
+    },
+
+    renderDiagnosisHtml: function (diagnosis) {
+        var html = [];
+        var i;
+
+        html.push("<div class=\"custommaintenance-diagnosis\">");
+        html.push("<p><strong>" + this.escapeHtml(this.translateWithFallback(
+            "custommaintenance.diagnosis_reference_result",
+            "Ausgewertet für"
+        )) + ":</strong> " + this.escapeHtml(diagnosis["evaluated_at"] || "") + "</p>");
+        html.push("<table class=\"custommaintenance-diagnosis-table\" style=\"width:100%; border-collapse:collapse;\">");
+        html.push("<thead><tr>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.token", "Technischer Token")) + "</th>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.description", "Beschreibung")) + "</th>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.maintenance_mode", "Maintenance-Modus")) + "</th>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.diagnosis_effective_maintenance", "Maintenance effektiv")) + "</th>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.diagnosis_maintenance_reason", "Maintenance-Grund")) + "</th>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.diagnosis_effective_notice", "Hinweis effektiv")) + "</th>");
+        html.push("<th style=\"text-align:left; border-bottom:1px solid #ccc; padding:6px;\">" + this.escapeHtml(this.translateWithFallback("custommaintenance.diagnosis_notice_reason", "Hinweis-Grund")) + "</th>");
+        html.push("</tr></thead><tbody>");
+
+        for (i = 0; i < diagnosis["entries"].length; i++) {
+            html.push(this.renderDiagnosisRow(diagnosis["entries"][i]));
+        }
+
+        html.push("</tbody></table></div>");
+
+        return html.join("");
+    },
+
+    renderDiagnosisRow: function (entry) {
+        return [
+            "<tr>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(entry["token"] || "") + "</td>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(entry["description"] || "") + "</td>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(this.translateMaintenanceMode(entry["maintenance"]["mode"])) + "</td>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(this.translateDiagnosisState(entry["maintenance"]["effective"])) + "</td>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(this.translateMaintenanceReason(entry["maintenance"]["reason"], entry["maintenance"])) + "</td>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(this.translateNoticeState(entry["notice"]["effective"])) + "</td>",
+            "<td style=\"padding:6px; border-bottom:1px solid #eee; vertical-align:top;\">" + this.escapeHtml(this.translateNoticeReason(entry["notice"]["reason"], entry["notice"])) + "</td>",
+            "</tr>"
+        ].join("");
+    },
+
+    translateMaintenanceMode: function (mode) {
+        switch (mode) {
+            case "active":
+                return this.translateWithFallback("custommaintenance.active", "Aktiv");
+            case "scheduled":
+                return this.translateWithFallback("custommaintenance.scheduled", "Zeitgesteuert");
+            default:
+                return this.translateWithFallback("custommaintenance.inactive", "Inaktiv");
+        }
+    },
+
+    translateDiagnosisState: function (state) {
+        switch (state) {
+            case "active":
+                return this.translateWithFallback("custommaintenance.active", "Aktiv");
+            case "current":
+                return this.translateWithFallback("custommaintenance.diagnosis_notice_current", "Current");
+            case "upcoming":
+                return this.translateWithFallback("custommaintenance.diagnosis_notice_upcoming", "Upcoming");
+            default:
+                return this.translateWithFallback("custommaintenance.inactive", "Inaktiv");
+        }
+    },
+
+    translateMaintenanceReason: function (reason, maintenance) {
+        switch (reason) {
+            case "temporary_activation":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_temporary_activation", "Temporärer Aktiv-Override");
+            case "manual_activation":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_manual_activation", "Manuell aktiviert");
+            case "scheduled_window":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_scheduled_window", "Zeitfenster ist aktiv");
+            default:
+                if (maintenance["scheduled_from"]) {
+                    return this.translateWithFallback("custommaintenance.diagnosis_reason_inactive_scheduled", "Zeitfenster derzeit nicht aktiv");
+                }
+
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_inactive", "Keine aktive Maintenance");
+        }
+    },
+
+    translateNoticeState: function (state) {
+        switch (state) {
+            case "current":
+                return this.translateWithFallback("custommaintenance.diagnosis_notice_current", "Aktiver Hinweis");
+            case "upcoming":
+                return this.translateWithFallback("custommaintenance.diagnosis_notice_upcoming", "Geplanter Hinweis");
+            case "visible":
+                return this.translateWithFallback("custommaintenance.diagnosis_notice_visible", "Sichtbarer Hinweis");
+            default:
+                return this.translateWithFallback("custommaintenance.diagnosis_notice_inactive", "Kein Hinweis");
+        }
+    },
+
+    translateNoticeReason: function (reason) {
+        switch (reason) {
+            case "active_maintenance":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_active_maintenance", "Aktive Maintenance schlägt die Hinweis-Planung");
+            case "always":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_always", "Hinweis ist dauerhaft aktiviert");
+            case "notice_schedule":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_notice_schedule", "Hinweis-Zeitplanung ist erreicht");
+            case "notice_window_not_started":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_notice_not_started", "Hinweis-Zeitplanung hat noch nicht begonnen");
+            case "maintenance_not_upcoming":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_notice_not_upcoming", "Keine künftige Maintenance für einen Upcoming-Hinweis");
+            case "notice_unconfigured":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_notice_unconfigured", "Hinweis-Zeitplanung ist unvollständig");
+            case "never":
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_never", "Hinweis ist deaktiviert");
+            default:
+                return this.translateWithFallback("custommaintenance.diagnosis_reason_inactive", "Kein sichtbarer Hinweis");
+        }
+    },
+
+    escapeHtml: function (value) {
+        return String(value === null || typeof value === "undefined" ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    },
+
+    validateBeforeSave: function(values) {
+        var validationError = this.validatePimcoreTiming(values);
+        if (validationError) {
+            this.showValidationError(validationError);
+            return false;
+        }
+
+        for (var i = 0; i < this.data["tokens"].length; i++) {
+            var token = this.data["tokens"][i];
+            validationError = this.validateCustomMaintenanceTiming(token, values);
+            if (validationError) {
+                this.showValidationError(validationError);
+                return false;
+            }
+
+            validationError = this.validateCustomNoticeTiming(token, values);
+            if (validationError) {
+                this.showValidationError(validationError);
+                return false;
+            }
+        }
+
+        return true;
+    },
+
+    validatePimcoreTiming: function(values) {
+        var startError = this.validateRequiredDateTimePair(
+            values["pimcore_from_date"],
+            values["pimcore_from_time"],
+            this.translateWithFallback(
+                "custommaintenance.pimcore_maintenance_requires_start",
+                "Die Pimcore-Zeitsteuerung benötigt einen Startzeitpunkt mit Datum und Uhrzeit."
+            )
+        );
+        if (startError) {
+            return startError;
+        }
+
+        var endError = this.validateRequiredDateTimePair(
+            values["pimcore_to_date"],
+            values["pimcore_to_time"],
+            this.translateWithFallback(
+                "custommaintenance.pimcore_maintenance_requires_end",
+                "Die Pimcore-Zeitsteuerung benötigt einen Endzeitpunkt mit Datum und Uhrzeit."
+            )
+        );
+        if (endError) {
+            return endError;
+        }
+
+        if (values["pimcore_show_info"] === "automatic") {
+            return this.validateRequiredDateTimePair(
+                values["pimcore_show_info_from_date"],
+                values["pimcore_show_info_from_time"],
+                this.translateWithFallback(
+                    "custommaintenance.notice_requires_start",
+                    "Der zeitgeplante Hinweis für Pimcore benötigt einen Startzeitpunkt mit Datum und Uhrzeit."
+                )
+            );
+        }
+
+        return null;
+    },
+
+    validateCustomMaintenanceTiming: function(token, values) {
+        if (values[token + "_maintenance_mode"] !== "scheduled") {
+            return null;
+        }
+
+        var startError = this.validateRequiredDateTimePair(
+            values[token + "_from_date"],
+            values[token + "_from_time"],
+            this.translateWithFallback(
+                "custommaintenance.maintenance_requires_start",
+                "Die zeitgesteuerte Maintenance benötigt einen Startzeitpunkt mit Datum und Uhrzeit."
+            )
+        );
+        if (startError) {
+            return startError;
+        }
+
+        return this.validateOptionalDateTimePair(
+            values[token + "_to_date"],
+            values[token + "_to_time"],
+            this.translateWithFallback(
+                "custommaintenance.maintenance_optional_end_complete",
+                "Das optionale Ende der zeitgesteuerten Maintenance muss Datum und Uhrzeit vollständig enthalten."
+            )
+        );
+    },
+
+    validateCustomNoticeTiming: function(token, values) {
+        if (values[token + "_show_info"] !== "automatic") {
+            return null;
+        }
+
+        return this.validateRequiredDateTimePair(
+            values[token + "_show_info_from_date"],
+            values[token + "_show_info_from_time"],
+            this.translateWithFallback(
+                "custommaintenance.notice_requires_start",
+                "Der zeitgeplante Hinweis benötigt einen Startzeitpunkt mit Datum und Uhrzeit."
+            )
+        );
+    },
+
+    validateRequiredDateTimePair: function(dateValue, timeValue, message) {
+        var hasDate = this.hasValue(dateValue);
+        var hasTime = this.hasValue(timeValue);
+
+        if (!hasDate && !hasTime) {
+            return message;
+        }
+
+        if (hasDate !== hasTime) {
+            return message;
+        }
+
+        return null;
+    },
+
+    validateOptionalDateTimePair: function(dateValue, timeValue, message) {
+        var hasDate = this.hasValue(dateValue);
+        var hasTime = this.hasValue(timeValue);
+
+        if (hasDate !== hasTime) {
+            return message;
+        }
+
+        return null;
+    },
+
+    hasValue: function(value) {
+        return typeof value !== "undefined" && value !== null && String(value).replace(/^\s+|\s+$/g, "") !== "";
+    },
+
+    showValidationError: function(message) {
+        pimcore.helpers.showNotification(
+            t("error"),
+            message,
+            "error"
+        );
+    },
+
     removeCustomMaintenance: function (token, fieldset) {
         var title = fieldset && fieldset.title ? fieldset.title : token;
         var confirmTitle = this.translateWithFallback(
@@ -436,6 +870,7 @@ custommaintenance.AdminPanel = Class.create({
     buildNewCustomConfig: function () {
         return {
             active: "false",
+            temporary_active: "false",
             fixed: "false",
             description: "",
             show_info: "never",
@@ -469,6 +904,7 @@ custommaintenance.AdminPanel = Class.create({
         var descriptionValue = config["description"] ? config["description"] : "";
         var title = descriptionValue ? descriptionValue : token;
         var fieldset;
+        var maintenanceMode = this.deriveMaintenanceMode(config);
         var updateTitle = function () {
             var form = this.layout.getForm();
             var tokenField = form.findField(token + "_token");
@@ -520,19 +956,54 @@ custommaintenance.AdminPanel = Class.create({
         });
 
         items.push({
-            fieldLabel: t("custommaintenance.active"),
+            fieldLabel: this.translateWithFallback("custommaintenance.maintenance_mode", "Maintenance-Modus"),
             xtype: "combo",
             width: 425,
-            name: token + "_active",
-            value: config["active"] ? config["active"] : "false",
+            name: token + "_maintenance_mode",
+            value: maintenanceMode,
             store: [
-                ["false", t("custommaintenance.inactive")],
-                ["true", t("custommaintenance.active")]
+                ["inactive", this.translateWithFallback("custommaintenance.inactive", "Inaktiv")],
+                ["active", this.translateWithFallback("custommaintenance.active", "Aktiv")],
+                ["scheduled", this.translateWithFallback("custommaintenance.scheduled", "Zeitgesteuert")]
             ],
+            listeners: {
+                select: this.applyMaintenanceMode.bind(this, token)
+            },
             mode: "local",
             editable: false,
             forceSelection: true,
             triggerAction: "all"
+        });
+        items.push({
+            xtype: 'fieldcontainer',
+            fieldLabel: this.translateWithFallback("custommaintenance.temporary_active", "Temporärer Aktiv-Override"),
+            layout: 'hbox',
+            items: [
+                {
+                    xtype: "combo",
+                    width: 325,
+                    name: token + "_temporary_active",
+                    value: config["temporary_active"] ? config["temporary_active"] : "false",
+                    store: [
+                        ["false", this.translateWithFallback("custommaintenance.is_not_temporarily_active", "Nicht aktiv")],
+                        ["true", this.translateWithFallback("custommaintenance.is_temporarily_active", "Temporär aktiv")]
+                    ],
+                    mode: "local",
+                    editable: false,
+                    forceSelection: true,
+                    triggerAction: "all"
+                },
+                {
+                    xtype: 'displayfield',
+                    value: this.translateWithFallback(
+                        "custommaintenance.temporary_active.helptext",
+                        "Technischer Aktiv-Override. Überlagert die Basis-Konfiguration vorübergehend, ohne sie zu zerstören."
+                    ),
+                    style: {
+                        marginLeft : "20px"
+                    }
+                }
+            ]
         });
         items.push({
             xtype: 'fieldcontainer',
@@ -562,11 +1033,14 @@ custommaintenance.AdminPanel = Class.create({
                 }
             ]
         });
-        items.push({
+        items.push(new Ext.form.FieldSet({
             xtype: 'fieldset',
+            id: token + "_timecontrol_fieldset",
             title: t("custommaintenance.timecontrol"),
             collapsible: false,
             autoHeight: true,
+            hidden: maintenanceMode !== "scheduled",
+            disabled: maintenanceMode !== "scheduled",
             defaults: {
                 labelWidth: 200
             },
@@ -594,7 +1068,7 @@ custommaintenance.AdminPanel = Class.create({
                     ]
                 }
             ]
-        });
+        }));
         items.push({
             xtype: 'fieldset',
             title: t("custommaintenance.display"),
@@ -678,10 +1152,42 @@ custommaintenance.AdminPanel = Class.create({
             defaults: {
                 labelWidth: 200
             },
+            listeners: {
+                afterrender: function() {
+                    this.applyMaintenanceMode(token);
+                }.bind(this)
+            },
             items: items
         });
 
         return fieldset;
+    },
+
+    deriveMaintenanceMode: function(config) {
+        if (config["active"] === "true") {
+            return "active";
+        }
+
+        if (this.isConfiguredDateTime(config["planned"]["from"])) {
+            return "scheduled";
+        }
+
+        return "inactive";
+    },
+
+    isConfiguredDateTime: function(dateTimeConfig) {
+        if (!dateTimeConfig) {
+            return false;
+        }
+
+        var date = (dateTimeConfig["date"] || "").replace(/^\s+|\s+$/g, "");
+        var time = (dateTimeConfig["time"] || "").replace(/^\s+|\s+$/g, "");
+
+        if (!date || !time) {
+            return false;
+        }
+
+        return !(date === "01.01.1970" && time === "00:00");
     },
 
     createDateField: function(name, value, hidden) {

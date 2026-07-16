@@ -66,6 +66,87 @@ final class StatusServiceTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function testOpenEndedTimeslotRemainsActiveAfterStartUntilAnotherImpulseArrives(): void
+    {
+        $settingsStore = new class($this->buildOpenEndedConfig(StatusService::STATUS_INACTIVE)) implements ConfigPersistenceInterface {
+            private ?array $data;
+
+            public function __construct(?array $data)
+            {
+                $this->data = $data;
+            }
+
+            public function load(): ?array
+            {
+                return $this->data;
+            }
+
+            public function save(array $data): void
+            {
+                $this->data = $data;
+            }
+        };
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+
+        Carbon::setTestNow('2026-02-01 11:30');
+        self::assertFalse($service->isActive('prices'));
+
+        $service->setStatus('prices', StatusService::STATUS_ACTIVE);
+
+        Carbon::setTestNow('2026-02-01 11:45');
+        self::assertTrue($service->isActive('prices'));
+
+        $service->setStatus('prices', StatusService::STATUS_INACTIVE);
+
+        Carbon::setTestNow('2026-02-01 12:30');
+        self::assertTrue($service->isActive('prices'));
+
+        Carbon::setTestNow();
+    }
+
+    public function testDeactivateClosesStartedOpenEndedTimeslotWhenNoFixedProtectionApplies(): void
+    {
+        $settingsStore = new class($this->buildOpenEndedConfig(StatusService::STATUS_INACTIVE)) implements ConfigPersistenceInterface {
+            private ?array $data;
+
+            public function __construct(?array $data)
+            {
+                $this->data = $data;
+            }
+
+            public function load(): ?array
+            {
+                return $this->data;
+            }
+
+            public function save(array $data): void
+            {
+                $this->data = $data;
+            }
+        };
+
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+
+        Carbon::setTestNow('2026-02-01 12:30');
+        self::assertTrue($service->isActive('prices'));
+
+        $service->setStatus('prices', StatusService::STATUS_INACTIVE);
+
+        Carbon::setTestNow('2026-02-01 12:31');
+        self::assertFalse($service->isActive('prices'));
+        self::assertSame('01.02.2026', $service->getConfigForToken('prices')['planned']['to']['date']);
+        self::assertSame('12:30', $service->getConfigForToken('prices')['planned']['to']['time']);
+
+        Carbon::setTestNow();
+    }
+
     public function testConfiguredTimeslotFormatsRemainCompatibleWithBundleFormat(): void
     {
         Carbon::setTestNow('2026-02-01 10:30');
@@ -163,16 +244,19 @@ final class StatusServiceTest extends TestCase
 
         self::assertSame(StatusService::STATUS_INACTIVE, $service->getStatus('prices'));
         self::assertFalse($service->isActive('prices'));
+        self::assertSame('false', $service->getConfigForToken('prices')['temporary_active']);
 
         $service->setStatus('prices', StatusService::STATUS_ACTIVE);
 
-        self::assertSame(StatusService::STATUS_ACTIVE, $service->getStatus('prices'));
+        self::assertSame(StatusService::STATUS_INACTIVE, $service->getStatus('prices'));
         self::assertTrue($service->isActive('prices'));
+        self::assertSame('true', $service->getConfigForToken('prices')['temporary_active']);
 
         $service->setStatus('prices', StatusService::STATUS_INACTIVE);
 
         self::assertSame(StatusService::STATUS_INACTIVE, $service->getStatus('prices'));
         self::assertFalse($service->isActive('prices'));
+        self::assertSame('false', $service->getConfigForToken('prices')['temporary_active']);
 
         Carbon::setTestNow();
     }
@@ -310,6 +394,7 @@ final class StatusServiceTest extends TestCase
         $service->setStatus('prices', StatusService::STATUS_INACTIVE, true);
 
         self::assertSame(StatusService::STATUS_INACTIVE, $service->getStatus('prices'));
+        self::assertSame('false', $service->getConfigForToken('prices')['temporary_active']);
     }
 
     public function testSetStatusAlsoBlocksActivationForFixedMaintenancesWithoutOverride(): void
@@ -627,6 +712,34 @@ final class StatusServiceTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function testIsActiveTreatsEmptyStringAsInvalidTokenInsteadOfGlobalAggregation(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildStatusServiceConfig(StatusService::STATUS_ACTIVE));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+        $logger = $this->createRecordingLogger();
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock(),
+            $logger
+        );
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Invalid token: ');
+
+        try {
+            $service->isActive('');
+        } finally {
+            self::assertCount(1, $logger->records);
+            self::assertSame('', $logger->records[0]['context']['token']);
+        }
+    }
+
     public function testGetStatusLogsUnknownTokenAsRuntimeError(): void
     {
         $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
@@ -774,6 +887,65 @@ final class StatusServiceTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function testIndicateUpcomingMaintenanceRendersVisibleNoticeWhenNoticeWindowHasStartedWithoutMaintenanceSchedule(): void
+    {
+        Carbon::setTestNow('2026-02-01 10:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [
+                    'indication_upcoming' => ['de' => 'Upcoming %s %s'],
+                    'indication_current' => ['de' => 'Current %s %s'],
+                    'more' => ['de' => 'Mehr'],
+                    'fulltimeformat' => ['de' => 'd.m.Y H:i'],
+                ],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.2026', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.2026', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.2026', 'time' => '01:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [
+                    'prices' => [
+                        'active' => StatusService::STATUS_INACTIVE,
+                        'fixed' => StatusService::STATUS_INACTIVE,
+                        'description' => 'ERP',
+                        'show_info' => 'automatic',
+                        'show_info_from' => ['date' => '01.02.2026', 'time' => '08:00'],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $engine = new Environment(new ArrayLoader([
+            '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig' => '{{ message }}|{{ link.caption }}|{{ link.url }}',
+        ]));
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock()
+        );
+
+        self::assertSame(
+            'Upcoming ab sofort bis auf Weiteres|Mehr|/de/erp',
+            $service->indicateUpcomingMaintenance($engine)
+        );
+
+        Carbon::setTestNow();
+    }
+
     public function testIndicateCurrentMaintenanceRendersCanonicalTwigTemplateWithoutPhpFallbackOrLinkStub(): void
     {
         Carbon::setTestNow('2026-02-01 10:30');
@@ -801,6 +973,247 @@ final class StatusServiceTest extends TestCase
         );
 
         Carbon::setTestNow();
+    }
+
+    public function testIndicateCurrentMaintenanceSupportsOpenEndedScheduleWithoutLegacyEpochEndDate(): void
+    {
+        Carbon::setTestNow('2026-02-01 12:30');
+
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn($this->buildOpenEndedConfig(StatusService::STATUS_INACTIVE));
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $engine = new Environment(new ArrayLoader([
+            '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig' => '{{ message }}',
+        ]));
+
+        $service = new StatusService(
+            new MaintenanceConfigManager($settingsStore, $legacyLoader),
+            $this->createHeadLinkMock()
+        );
+
+        self::assertSame(
+            'Current 01.02.2026 12:00 bis auf Weiteres',
+            $service->indicateCurrentMaintenance($engine)
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function testDiagnosisEvaluatesMaintenanceAndNoticeStateAgainstExplicitReferenceTime(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [
+                    'indication_upcoming' => ['de' => 'Upcoming %s %s'],
+                    'indication_current' => ['de' => 'Current %s %s'],
+                    'more' => ['de' => 'Mehr'],
+                    'fulltimeformat' => ['de' => 'd.m.Y H:i'],
+                ],
+                'pimcore' => [
+                    'show_info' => 'automatic',
+                    'show_info_from' => ['date' => '01.02.2026', 'time' => '08:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.02.2026', 'time' => '10:00'],
+                        'to' => ['date' => '01.02.2026', 'time' => '12:00'],
+                    ],
+                    'document' => '/de/pimcore',
+                ],
+                'custom' => [
+                    'prices' => [
+                        'active' => StatusService::STATUS_INACTIVE,
+                        'temporary_active' => StatusService::STATUS_ACTIVE,
+                        'fixed' => StatusService::STATUS_INACTIVE,
+                        'description' => 'ERP',
+                        'show_info' => 'automatic',
+                        'show_info_from' => ['date' => '01.02.2026', 'time' => '08:00'],
+                        'planned' => [
+                            'from' => ['date' => '01.02.2026', 'time' => '11:00'],
+                            'to' => ['date' => '01.02.2026', 'time' => '13:00'],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                    'search' => [
+                        'active' => StatusService::STATUS_INACTIVE,
+                        'temporary_active' => StatusService::STATUS_INACTIVE,
+                        'fixed' => StatusService::STATUS_INACTIVE,
+                        'description' => 'Search',
+                        'show_info' => 'automatic',
+                        'show_info_from' => ['date' => '01.02.2026', 'time' => '08:00'],
+                        'planned' => [
+                            'from' => ['date' => '01.02.2026', 'time' => '14:00'],
+                            'to' => ['date' => '01.02.2026', 'time' => '16:00'],
+                        ],
+                        'document' => '/de/search',
+                    ],
+                ],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+        $diagnosis = $service->getDiagnosis(Carbon::parse('2026-02-01 10:30'));
+
+        self::assertSame('01.02.2026 10:30', $diagnosis['evaluated_at']);
+        self::assertSame('scheduled_window', $diagnosis['entries'][0]['maintenance']['reason']);
+        self::assertSame('current', $diagnosis['entries'][0]['notice']['effective']);
+        self::assertSame('temporary_activation', $diagnosis['entries'][1]['maintenance']['reason']);
+        self::assertSame('current', $diagnosis['entries'][1]['notice']['effective']);
+        self::assertSame('upcoming', $diagnosis['entries'][2]['notice']['effective']);
+        self::assertSame('notice_schedule', $diagnosis['entries'][2]['notice']['reason']);
+    }
+
+    public function testDiagnosisCanEvaluateUnsavedAdminPayloadWithoutPersistingChanges(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+        $diagnosis = $service->getDiagnosis(Carbon::parse('2026-02-01 10:30'), [
+            'custom_tokens' => 'search',
+            'frontend_indication_upcoming' => 'Upcoming %s %s',
+            'frontend_indication_current' => 'Current %s %s',
+            'frontend_more' => 'Mehr',
+            'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'pimcore_show_info' => 'never',
+            'pimcore_show_info_from_date' => '2026-02-01',
+            'pimcore_show_info_from_time' => '2026-02-01 07:15',
+            'pimcore_from_date' => '2026-02-02',
+            'pimcore_from_time' => '2026-02-02 08:00',
+            'pimcore_to_date' => '2026-02-02',
+            'pimcore_to_time' => '2026-02-02 09:30',
+            'pimcore_document' => '/de/pimcore',
+            'search_token' => 'search',
+            'search_maintenance_mode' => 'scheduled',
+            'search_temporary_active' => 'false',
+            'search_fixed' => 'false',
+            'search_description' => 'Search',
+            'search_show_info' => 'automatic',
+            'search_show_info_from_date' => '2026-02-01',
+            'search_show_info_from_time' => '2026-02-01 08:00',
+            'search_from_date' => '2026-02-01',
+            'search_from_time' => '2026-02-01 11:00',
+            'search_to_date' => '2026-02-01',
+            'search_to_time' => '2026-02-01 12:30',
+            'search_document' => '/de/search',
+        ]);
+
+        self::assertSame('search', $diagnosis['entries'][1]['token']);
+        self::assertSame('scheduled', $diagnosis['entries'][1]['maintenance']['mode']);
+        self::assertSame('inactive', $diagnosis['entries'][1]['maintenance']['effective']);
+        self::assertSame('upcoming', $diagnosis['entries'][1]['notice']['effective']);
+    }
+
+    public function testDiagnosisMarksAlwaysNoticeWithoutUpcomingMaintenanceAsVisible(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [
+                    'prices' => [
+                        'active' => StatusService::STATUS_INACTIVE,
+                        'temporary_active' => StatusService::STATUS_INACTIVE,
+                        'fixed' => StatusService::STATUS_INACTIVE,
+                        'description' => 'ERP',
+                        'show_info' => 'always',
+                        'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+        $diagnosis = $service->getDiagnosis(Carbon::parse('2026-02-01 10:30'));
+
+        self::assertSame('visible', $diagnosis['entries'][1]['notice']['effective']);
+        self::assertSame('always', $diagnosis['entries'][1]['notice']['reason']);
+        self::assertTrue($diagnosis['entries'][1]['notice']['visible']);
+    }
+
+    public function testDiagnosisMarksAutomaticNoticeWithoutUpcomingMaintenanceAsVisibleAfterNoticeStart(): void
+    {
+        $settingsStore = $this->createMock(ConfigPersistenceInterface::class);
+        $settingsStore
+            ->expects(self::once())
+            ->method('load')
+            ->willReturn([
+                'frontend' => [],
+                'pimcore' => [
+                    'show_info' => 'never',
+                    'show_info_from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.01.1970', 'time' => '00:00'],
+                        'to' => ['date' => '01.01.1970', 'time' => '00:00'],
+                    ],
+                    'document' => '',
+                ],
+                'custom' => [
+                    'prices' => [
+                        'active' => StatusService::STATUS_INACTIVE,
+                        'temporary_active' => StatusService::STATUS_INACTIVE,
+                        'fixed' => StatusService::STATUS_INACTIVE,
+                        'description' => 'ERP',
+                        'show_info' => 'automatic',
+                        'show_info_from' => ['date' => '01.02.2026', 'time' => '08:00'],
+                        'planned' => [
+                            'from' => ['date' => '', 'time' => ''],
+                            'to' => ['date' => '', 'time' => ''],
+                        ],
+                        'document' => '/de/erp',
+                    ],
+                ],
+            ]);
+        $legacyLoader = $this->createMock(LegacyConfigLoaderInterface::class);
+        $legacyLoader->expects(self::never())->method('load');
+
+        $service = new StatusService(new MaintenanceConfigManager($settingsStore, $legacyLoader), $this->createHeadLinkMock());
+        $diagnosis = $service->getDiagnosis(Carbon::parse('2026-02-01 10:30'));
+
+        self::assertSame('visible', $diagnosis['entries'][1]['notice']['effective']);
+        self::assertSame('notice_schedule', $diagnosis['entries'][1]['notice']['reason']);
+        self::assertTrue($diagnosis['entries'][1]['notice']['visible']);
     }
 
     private function createHeadLinkMock(): HeadLink
@@ -867,6 +1280,41 @@ final class StatusServiceTest extends TestCase
                         'to' => ['date' => '01.02.2026', 'time' => '11:00'],
                     ],
                     'document' => $documentPath,
+                ],
+            ],
+        ];
+    }
+
+    private function buildOpenEndedConfig(string $activeStatus): array
+    {
+        return [
+            'frontend' => [
+                'indication_upcoming' => ['de' => 'Upcoming %s %s'],
+                'indication_current' => ['de' => 'Current %s %s'],
+                'more' => ['de' => 'Mehr'],
+                'fulltimeformat' => ['de' => 'd.m.Y H:i'],
+            ],
+            'pimcore' => [
+                'show_info' => 'never',
+                'show_info_from' => ['date' => '01.01.2026', 'time' => '00:00'],
+                'planned' => [
+                    'from' => ['date' => '01.01.2026', 'time' => '00:00'],
+                    'to' => ['date' => '01.01.2026', 'time' => '01:00'],
+                ],
+                'document' => '',
+            ],
+            'custom' => [
+                'prices' => [
+                    'active' => $activeStatus,
+                    'fixed' => StatusService::STATUS_INACTIVE,
+                    'description' => 'ERP',
+                    'show_info' => 'always',
+                    'show_info_from' => ['date' => '01.02.2026', 'time' => '08:00'],
+                    'planned' => [
+                        'from' => ['date' => '01.02.2026', 'time' => '12:00'],
+                        'to' => ['date' => '', 'time' => ''],
+                    ],
+                    'document' => '/de/erp',
                 ],
             ],
         ];

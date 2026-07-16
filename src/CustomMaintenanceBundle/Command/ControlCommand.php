@@ -54,7 +54,9 @@ class ControlCommand extends AbstractCommand
 
                 case 'show-status':
                     $token = $input->getOption('token');
-                    $status = $this->statusService->getStatus($token);
+                    $status = $this->statusService->isActive($token)
+                        ? StatusService::STATUS_ACTIVE
+                        : StatusService::STATUS_INACTIVE;
                     $result = '';
 
                     switch ($status) {

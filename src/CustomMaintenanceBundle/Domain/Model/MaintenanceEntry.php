@@ -12,6 +12,8 @@ final class MaintenanceEntry
 
     private string $active;
 
+    private string $temporaryActive;
+
     private string $fixed;
 
     private MaintenanceSchedule $schedule;
@@ -22,6 +24,7 @@ final class MaintenanceEntry
         MaintenanceToken $token,
         string $description,
         string $active,
+        string $temporaryActive,
         string $fixed,
         MaintenanceSchedule $schedule,
         MaintenanceNoticeConfig $noticeConfig
@@ -29,6 +32,7 @@ final class MaintenanceEntry
         $this->token = $token;
         $this->description = $description;
         $this->active = $active;
+        $this->temporaryActive = $temporaryActive;
         $this->fixed = $fixed;
         $this->schedule = $schedule;
         $this->noticeConfig = $noticeConfig;
@@ -39,6 +43,7 @@ final class MaintenanceEntry
         return new self(
             new MaintenanceToken('pimcore'),
             'Pimcore',
+            'false',
             'false',
             'false',
             MaintenanceSchedule::fromLegacyArray((array) ($config['planned'] ?? [])),
@@ -52,6 +57,7 @@ final class MaintenanceEntry
             new MaintenanceToken($token),
             (string) ($config['description'] ?? $token),
             (string) ($config['active'] ?? 'false'),
+            (string) ($config['temporary_active'] ?? 'false'),
             (string) ($config['fixed'] ?? 'false'),
             MaintenanceSchedule::fromLegacyArray((array) ($config['planned'] ?? [])),
             MaintenanceNoticeConfig::fromLegacyArray($config)
@@ -76,6 +82,11 @@ final class MaintenanceEntry
     public function isMarkedActive(): bool
     {
         return $this->active === 'true';
+    }
+
+    public function isTemporaryActivationActive(): bool
+    {
+        return $this->temporaryActive === 'true';
     }
 
     public function isFixedMode(): bool
@@ -104,6 +115,7 @@ final class MaintenanceEntry
 
         if (!$this->token->isPimcore()) {
             $data['active'] = $this->active;
+            $data['temporary_active'] = $this->temporaryActive;
             $data['fixed'] = $this->fixed;
             $data['description'] = $this->description;
         }

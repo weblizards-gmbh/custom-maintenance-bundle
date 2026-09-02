@@ -406,7 +406,7 @@ Die Epic-5-Arbeit an der Schaltlogik sollte mindestens diese Punkte schärfen:
 
 ## Separater Folgekandidat
 
-Die Idee einer völlig autarken statischen HTML-Fallback-Seite für harte Webserver-Ausfallfälle bleibt fachlich relevant, gehört aber nicht automatisch in denselben Schaltlogik-Scope. Sie sollte als separater Folgeblock geplant werden.
+Die Idee einer völlig autarken statischen HTML-Fallback-Seite für harte Webserver-Ausfallfälle bleibt fachlich relevant, gehört aber nicht automatisch in denselben Schaltlogik-Scope. Sie ist deshalb separat unter [hard_fallback_pages.md](hard_fallback_pages.md) beschrieben.
 
 ## Übergang vom Altmodell
 

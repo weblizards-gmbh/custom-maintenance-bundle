@@ -22,6 +22,9 @@ services:
         public: true
         tags: ['controller.service_arguments']
 
+    Weblizards\CustomMaintenanceBundle\EventSubscriber\:
+        resource: '../../EventSubscriber'
+
     Weblizards\CustomMaintenanceBundle\Tools\Installer:
         public: true
 
@@ -50,6 +53,16 @@ services:
         arguments:
             $upcomingNoticeTemplate: '%weblizards_custom_maintenance.notice_template.upcoming%'
             $currentNoticeTemplate: '%weblizards_custom_maintenance.notice_template.current%'
+
+    Weblizards\CustomMaintenanceBundle\Service\HardFallbackExportService:
+        arguments:
+            $maintenanceExportTarget: '%weblizards_custom_maintenance.hard_fallback_target.maintenance%'
+            $errorExportTarget: '%weblizards_custom_maintenance.hard_fallback_target.error%'
+
+    Weblizards\CustomMaintenanceBundle\Service\HardFallbackMaintenanceRuntimeService:
+        arguments:
+            $runtimeDirectory: '%weblizards_custom_maintenance.hard_fallback_runtime.directory%'
+            $additionalAllowedIps: '%weblizards_custom_maintenance.hard_fallback_runtime.allowed_ips%'
 
     Weblizards\CustomMaintenanceBundle\Twig\Extensions:
         public: true

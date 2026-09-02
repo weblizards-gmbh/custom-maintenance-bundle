@@ -56,6 +56,16 @@ final class MaintenanceConfigManager
             'document' => '',
         ],
         'custom' => [],
+        'hard_fallback' => [
+            'maintenance_document' => [
+                'id' => null,
+                'path' => '',
+            ],
+            'error_document' => [
+                'id' => null,
+                'path' => '',
+            ],
+        ],
     ];
 
     private ConfigPersistenceInterface $configPersistence;
@@ -63,6 +73,8 @@ final class MaintenanceConfigManager
     private LegacyConfigLoaderInterface $legacyConfigLoader;
 
     private ?MaintenanceConfigSet $configSet = null;
+
+    private ?array $currentRawData = null;
 
     public function __construct(
         ConfigPersistenceInterface $configPersistence,
@@ -88,6 +100,7 @@ final class MaintenanceConfigManager
     {
         $configSet = $this->getConfigSet();
         $data = $configSet->toLegacyArray();
+        $data['hard_fallback'] = $this->getCurrentRawData()['hard_fallback'];
         $data['tokens'] = $configSet->getCustomTokens();
 
         return $data;
@@ -98,9 +111,39 @@ final class MaintenanceConfigManager
         return $this->buildConfigSetFromRawData($this->buildRawDataFromAdminPayload($values));
     }
 
-    public function saveFromAdminPayload(array $values): void
+    /**
+     * @return array{
+     *   hard_fallback: array{
+     *     maintenance_document_changed:bool,
+     *     error_document_changed:bool,
+     *     maintenance_document_id:int|null,
+     *     error_document_id:int|null
+     *   }
+     * }
+     */
+    public function saveFromAdminPayload(array $values): array
     {
-        $this->persistLegacyData($this->buildRawDataFromAdminPayload($values));
+        $this->assertPimcoreEntryIsProtected($values);
+        $previousData = $this->getCurrentRawData();
+        $updatedData = $this->buildRawDataFromAdminPayload($values);
+        $changeSet = $this->buildHardFallbackChangeSet($previousData['hard_fallback'], $updatedData['hard_fallback']);
+
+        $this->persistLegacyData($updatedData);
+
+        return [
+            'hard_fallback' => $changeSet,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   maintenance_document: array{id:int|null,path:string},
+     *   error_document: array{id:int|null,path:string}
+     * }
+     */
+    public function getHardFallbackConfig(): array
+    {
+        return $this->getCurrentRawData()['hard_fallback'];
     }
 
     public function setCustomStatus(string $token, string $status): void
@@ -157,6 +200,14 @@ final class MaintenanceConfigManager
         $data['frontend']['indication_current']['de'] = (string) $values['frontend_indication_current'];
         $data['frontend']['more']['de'] = (string) $values['frontend_more'];
         $data['frontend']['fulltimeformat']['de'] = (string) $values['frontend_fulltimeformat'];
+        $data['hard_fallback']['maintenance_document'] = $this->resolveHardFallbackDocumentPayload(
+            $this->getPayloadValue($values, 'hard_fallback_maintenance_document_id'),
+            $this->getPayloadValue($values, 'hard_fallback_maintenance_document_path')
+        );
+        $data['hard_fallback']['error_document'] = $this->resolveHardFallbackDocumentPayload(
+            $this->getPayloadValue($values, 'hard_fallback_error_document_id'),
+            $this->getPayloadValue($values, 'hard_fallback_error_document_path')
+        );
 
         $data['pimcore']['show_info'] = (string) $values['pimcore_show_info'];
         [$pimcoreShowInfoFromDate, $pimcoreShowInfoFromTime] = $this->resolveNoticeTimingPayload(
@@ -281,23 +332,34 @@ final class MaintenanceConfigManager
     {
         $this->configPersistence->save($data);
         $this->configSet = null;
+        $this->currentRawData = null;
     }
 
     private function getCurrentRawData(): array
     {
+        if (is_array($this->currentRawData)) {
+            return $this->currentRawData;
+        }
+
         $settingsStoreData = $this->configPersistence->load();
         if (is_array($settingsStoreData)) {
             $this->assertValidSettingsStoreData($settingsStoreData);
 
-            return $this->normalizeData($settingsStoreData);
+            $this->currentRawData = $this->normalizeData($settingsStoreData);
+
+            return $this->currentRawData;
         }
 
         $legacyData = $this->legacyConfigLoader->load();
         if (is_array($legacyData)) {
-            return $this->normalizeData($legacyData);
+            $this->currentRawData = $this->normalizeData($legacyData);
+
+            return $this->currentRawData;
         }
 
-        return $this->normalizeData([]);
+        $this->currentRawData = $this->normalizeData([]);
+
+        return $this->currentRawData;
     }
 
     private function assertValidSettingsStoreData(array $settingsStoreData): void
@@ -310,6 +372,12 @@ final class MaintenanceConfigManager
                     sprintf('Invalid settings store payload for custom maintenance config: key "%s" must exist and be an array.', $key)
                 );
             }
+        }
+
+        if (array_key_exists('hard_fallback', $settingsStoreData) && !is_array($settingsStoreData['hard_fallback'])) {
+            throw new \UnexpectedValueException(
+                'Invalid settings store payload for custom maintenance config: key "hard_fallback" must be an array if present.'
+            );
         }
     }
 
@@ -396,6 +464,59 @@ final class MaintenanceConfigManager
                 ],
             ],
             'document' => '',
+        ];
+    }
+
+    /**
+     * @return array{id:int|null,path:string}
+     */
+    private function resolveHardFallbackDocumentPayload(string $id, string $path): array
+    {
+        $normalizedId = trim($id);
+        $normalizedPath = trim($path);
+
+        if ($normalizedId === '' || $normalizedPath === '') {
+            return [
+                'id' => null,
+                'path' => '',
+            ];
+        }
+
+        return [
+            'id' => (int) $normalizedId,
+            'path' => $normalizedPath,
+        ];
+    }
+
+    /**
+     * @param array{
+     *   maintenance_document: array{id:int|null,path:string},
+     *   error_document: array{id:int|null,path:string}
+     * } $previous
+     * @param array{
+     *   maintenance_document: array{id:int|null,path:string},
+     *   error_document: array{id:int|null,path:string}
+     * } $current
+     *
+     * @return array{
+     *   maintenance_document_changed:bool,
+     *   error_document_changed:bool,
+     *   maintenance_document_id:int|null,
+     *   error_document_id:int|null
+     * }
+     */
+    private function buildHardFallbackChangeSet(array $previous, array $current): array
+    {
+        $previousMaintenanceId = $previous['maintenance_document']['id'] ?? null;
+        $currentMaintenanceId = $current['maintenance_document']['id'] ?? null;
+        $previousErrorId = $previous['error_document']['id'] ?? null;
+        $currentErrorId = $current['error_document']['id'] ?? null;
+
+        return [
+            'maintenance_document_changed' => $previousMaintenanceId !== $currentMaintenanceId,
+            'error_document_changed' => $previousErrorId !== $currentErrorId,
+            'maintenance_document_id' => $currentMaintenanceId,
+            'error_document_id' => $currentErrorId,
         ];
     }
 

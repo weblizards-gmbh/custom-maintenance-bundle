@@ -1,0 +1,34 @@
+# Beispiel fuer Apache im VirtualHost-Kontext.
+# Anpassen:
+# - Session-Cookie-Name statt PHPSESSID, falls abweichend
+# - zusaetzliche erlaubte IPs
+# - bei Reverse-Proxy-Betrieb ggf. ProxyErrorOverride On
+
+RewriteEngine On
+
+# Runtime-Artefakte duerfen nie direkt auslieferbar sein.
+RewriteRule ^_maintenance/runtime/ - [F,L]
+
+# Statische Fallback-Seiten selbst duerfen direkt erreichbar bleiben.
+RewriteRule ^_maintenance/(maintenance|error)\.html$ - [L]
+
+# Beispiel fuer eine zusaetzliche statische IP-Ausnahme.
+RewriteCond %{REMOTE_ADDR} ^10\.0\.0\.5$
+RewriteRule ^ - [E=CMF_ALLOWED_IP:1]
+
+# Session-Bypass nur bei gueltigem Cookie-Wert und passender Markerdatei.
+RewriteCond %{HTTP:Cookie} (^|;\s*)PHPSESSID=([A-Za-z0-9,-]+) [NC]
+RewriteCond %{DOCUMENT_ROOT}/_maintenance/runtime/session-%2.flag -f
+RewriteRule ^ - [E=CMF_ALLOWED_SESSION:1]
+
+ErrorDocument 500 /_maintenance/error.html
+ErrorDocument 502 /_maintenance/error.html
+ErrorDocument 503 /_maintenance/maintenance.html
+ErrorDocument 504 /_maintenance/error.html
+
+# Bei aktiver Pimcore-Voll-Maintenance alle nicht ausgenommenen Requests sperren.
+RewriteCond %{DOCUMENT_ROOT}/_maintenance/runtime/maintenance-active.flag -f
+RewriteCond %{REMOTE_ADDR} !^127\.0\.0\.1$
+RewriteCond %{ENV:CMF_ALLOWED_IP} !=1
+RewriteCond %{ENV:CMF_ALLOWED_SESSION} !=1
+RewriteRule ^ - [R=503,L]

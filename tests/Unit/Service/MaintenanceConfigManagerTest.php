@@ -136,6 +136,10 @@ final class MaintenanceConfigManagerTest extends TestCase
                         'de' => 'Store current',
                     ],
                 ],
+                'hard_fallback' => [
+                    'maintenance_document' => ['id' => 123, 'path' => '/de/system/maintenance'],
+                    'error_document' => ['id' => 456, 'path' => '/de/system/error'],
+                ],
                 'pimcore' => [
                     'show_info' => 'always',
                     'show_info_from' => ['date' => '01.01.2026', 'time' => '07:00'],
@@ -182,6 +186,8 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertEqualsCanonicalizing(['prices', 'search'], $adminData['tokens']);
         self::assertSame('Store upcoming', $adminData['frontend']['indication_upcoming']['de']);
         self::assertSame('Store current', $adminData['frontend']['indication_current']['de']);
+        self::assertSame(123, $adminData['hard_fallback']['maintenance_document']['id']);
+        self::assertSame('/de/system/error', $adminData['hard_fallback']['error_document']['path']);
         self::assertSame('always', $adminData['pimcore']['show_info']);
         self::assertSame('01.01.2026', $adminData['pimcore']['show_info_from']['date']);
         self::assertSame('07:00', $adminData['pimcore']['show_info_from']['time']);
@@ -218,6 +224,10 @@ final class MaintenanceConfigManagerTest extends TestCase
                         'de' => 'Legacy upcoming',
                     ],
                 ],
+                'hard_fallback' => [
+                    'maintenance_document' => ['id' => 321, 'path' => '/de/legacy-maintenance'],
+                    'error_document' => ['id' => null, 'path' => ''],
+                ],
                 'pimcore' => [
                     'show_info' => 'automatic',
                     'show_info_from' => ['date' => '07.01.2026', 'time' => '06:00'],
@@ -248,6 +258,7 @@ final class MaintenanceConfigManagerTest extends TestCase
 
         self::assertSame(['prices'], $adminData['tokens']);
         self::assertSame('Legacy upcoming', $adminData['frontend']['indication_upcoming']['de']);
+        self::assertSame(321, $adminData['hard_fallback']['maintenance_document']['id']);
         self::assertSame('automatic', $adminData['pimcore']['show_info']);
         self::assertSame('/de/legacy-pimcore', $adminData['pimcore']['document']);
         self::assertSame('Legacy ERP', $adminData['custom']['prices']['description']);
@@ -277,6 +288,8 @@ final class MaintenanceConfigManagerTest extends TestCase
         self::assertSame('Gegenwärtige Wartungsarbeiten von %s bis %s.', $adminData['frontend']['indication_current']['de']);
         self::assertSame('Mehr Informationen...', $adminData['frontend']['more']['de']);
         self::assertSame('d.m.Y H:i', $adminData['frontend']['fulltimeformat']['de']);
+        self::assertNull($adminData['hard_fallback']['maintenance_document']['id']);
+        self::assertSame('', $adminData['hard_fallback']['error_document']['path']);
         self::assertSame('never', $adminData['pimcore']['show_info']);
         self::assertSame('01.01.1970', $adminData['pimcore']['planned']['from']['date']);
         self::assertSame('00:00', $adminData['pimcore']['planned']['to']['time']);
@@ -362,6 +375,10 @@ final class MaintenanceConfigManagerTest extends TestCase
             'frontend_indication_current' => 'Current %s %s',
             'frontend_more' => 'Mehr',
             'frontend_fulltimeformat' => 'd.m.Y H:i',
+            'hard_fallback_maintenance_document_id' => '123',
+            'hard_fallback_maintenance_document_path' => '/de/system/maintenance',
+            'hard_fallback_error_document_id' => '456',
+            'hard_fallback_error_document_path' => '/de/system/error',
             'pimcore_show_info' => 'automatic',
             'pimcore_show_info_from_date' => '2026-02-01',
             'pimcore_show_info_from_time' => '2026-02-01 07:15',
@@ -385,6 +402,8 @@ final class MaintenanceConfigManagerTest extends TestCase
         ]);
 
         self::assertSame('Upcoming %s %s', $persistedData['frontend']['indication_upcoming']['de']);
+        self::assertSame(123, $persistedData['hard_fallback']['maintenance_document']['id']);
+        self::assertSame('/de/system/error', $persistedData['hard_fallback']['error_document']['path']);
         self::assertSame('automatic', $persistedData['pimcore']['show_info']);
         self::assertSame('01.02.2026', $persistedData['pimcore']['show_info_from']['date']);
         self::assertSame('07:15', $persistedData['pimcore']['show_info_from']['time']);

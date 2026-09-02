@@ -32,6 +32,22 @@ class WeblizardsCustomMaintenanceExtension extends Extension
             'weblizards_custom_maintenance.notice_template.current',
             $config['notice_templates']['current']
         );
+        $container->setParameter(
+            'weblizards_custom_maintenance.hard_fallback_target.maintenance',
+            $config['hard_fallback_targets']['maintenance']
+        );
+        $container->setParameter(
+            'weblizards_custom_maintenance.hard_fallback_target.error',
+            $config['hard_fallback_targets']['error']
+        );
+        $container->setParameter(
+            'weblizards_custom_maintenance.hard_fallback_runtime.directory',
+            $config['hard_fallback_runtime']['directory']
+        );
+        $container->setParameter(
+            'weblizards_custom_maintenance.hard_fallback_runtime.allowed_ips',
+            $config['hard_fallback_runtime']['allowed_ips']
+        );
         $container->setParameter('weblizards_custommaintenance.config', $config);
     }
 }

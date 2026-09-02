@@ -13,6 +13,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Weblizards\CustomMaintenanceBundle\Controller\AdminpanelController;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\ConfigPersistenceInterface;
 use Weblizards\CustomMaintenanceBundle\Infrastructure\Persistence\LegacyConfigLoaderInterface;
+use Weblizards\CustomMaintenanceBundle\Service\HardFallbackExportService;
 use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
 use Weblizards\CustomMaintenanceBundle\Service\StatusService;
 
@@ -44,6 +45,10 @@ final class AdminpanelControllerTest extends TestCase
                     'fulltimeformat' => [
                         'de' => 'd.m.Y H:i',
                     ],
+                ],
+                'hard_fallback' => [
+                    'maintenance_document' => ['id' => 123, 'path' => '/de/system/maintenance'],
+                    'error_document' => ['id' => 456, 'path' => '/de/system/error'],
                 ],
                 'pimcore' => [
                     'show_info' => 'automatic',
@@ -82,6 +87,8 @@ final class AdminpanelControllerTest extends TestCase
         self::assertSame('Store current', $payload['frontend']['indication_current']['de']);
         self::assertSame('Mehr', $payload['frontend']['more']['de']);
         self::assertSame('d.m.Y H:i', $payload['frontend']['fulltimeformat']['de']);
+        self::assertSame(123, $payload['hard_fallback']['maintenance_document']['id']);
+        self::assertSame('/de/system/error', $payload['hard_fallback']['error_document']['path']);
         self::assertSame('automatic', $payload['pimcore']['show_info']);
         self::assertSame('01.01.2026', $payload['pimcore']['show_info_from']['date']);
         self::assertSame('08:30', $payload['pimcore']['show_info_from']['time']);
@@ -125,6 +132,17 @@ final class AdminpanelControllerTest extends TestCase
             ->method('trans')
             ->with('custommaintenance_adminpanel_save_success')
             ->willReturn('Speicher erfolgreich');
+        $hardFallbackExportService = $this->createMock(HardFallbackExportService::class);
+        $hardFallbackExportService
+            ->expects(self::once())
+            ->method('synchronizeAfterConfigSave')
+            ->with([
+                'maintenance_document_changed' => true,
+                'error_document_changed' => true,
+                'maintenance_document_id' => 123,
+                'error_document_id' => 456,
+            ])
+            ->willReturn([]);
 
         $controller = new AdminpanelController();
         $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
@@ -134,6 +152,10 @@ final class AdminpanelControllerTest extends TestCase
                 'frontend_indication_current' => 'Current %s %s',
                 'frontend_more' => 'Mehr',
                 'frontend_fulltimeformat' => 'd.m.Y H:i',
+                'hard_fallback_maintenance_document_id' => '123',
+                'hard_fallback_maintenance_document_path' => '/de/system/maintenance',
+                'hard_fallback_error_document_id' => '456',
+                'hard_fallback_error_document_path' => '/de/system/error',
                 'pimcore_show_info' => 'automatic',
                 'pimcore_show_info_from_date' => '2026-02-01',
                 'pimcore_show_info_from_time' => '2026-02-01 07:15',
@@ -145,7 +167,7 @@ final class AdminpanelControllerTest extends TestCase
             ], JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $controller->saveAction($request, $configManager, $translator);
+        $response = $controller->saveAction($request, $configManager, $translator, $hardFallbackExportService);
 
         self::assertSame(
             [
@@ -155,6 +177,8 @@ final class AdminpanelControllerTest extends TestCase
             json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR)
         );
         self::assertSame('Upcoming %s %s', $persistedData['frontend']['indication_upcoming']['de']);
+        self::assertSame(123, $persistedData['hard_fallback']['maintenance_document']['id']);
+        self::assertSame('/de/system/error', $persistedData['hard_fallback']['error_document']['path']);
         self::assertSame('automatic', $persistedData['pimcore']['show_info']);
         self::assertSame('01.02.2026', $persistedData['pimcore']['show_info_from']['date']);
         self::assertSame('07:15', $persistedData['pimcore']['show_info_from']['time']);
@@ -189,6 +213,8 @@ final class AdminpanelControllerTest extends TestCase
             ->method('trans')
             ->with('custommaintenance_adminpanel_save_success')
             ->willReturn('Speicher erfolgreich');
+        $hardFallbackExportService = $this->createMock(HardFallbackExportService::class);
+        $hardFallbackExportService->expects(self::once())->method('synchronizeAfterConfigSave')->willReturn([]);
 
         $controller = new AdminpanelController();
         $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
@@ -222,7 +248,7 @@ final class AdminpanelControllerTest extends TestCase
             ], JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $controller->saveAction($request, $configManager, $translator);
+        $response = $controller->saveAction($request, $configManager, $translator, $hardFallbackExportService);
 
         self::assertSame(
             [
@@ -278,6 +304,8 @@ final class AdminpanelControllerTest extends TestCase
             ->method('trans')
             ->with('custommaintenance_adminpanel_save_success')
             ->willReturn('Speicher erfolgreich');
+        $hardFallbackExportService = $this->createMock(HardFallbackExportService::class);
+        $hardFallbackExportService->expects(self::once())->method('synchronizeAfterConfigSave')->willReturn([]);
 
         $controller = new AdminpanelController();
         $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
@@ -311,7 +339,7 @@ final class AdminpanelControllerTest extends TestCase
             ], JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $controller->saveAction($request, $configManager, $translator);
+        $response = $controller->saveAction($request, $configManager, $translator, $hardFallbackExportService);
 
         self::assertSame(
             [
@@ -378,6 +406,8 @@ final class AdminpanelControllerTest extends TestCase
             ->method('trans')
             ->with('custommaintenance_adminpanel_save_success')
             ->willReturn('Speicher erfolgreich');
+        $hardFallbackExportService = $this->createMock(HardFallbackExportService::class);
+        $hardFallbackExportService->expects(self::once())->method('synchronizeAfterConfigSave')->willReturn([]);
 
         $controller = new AdminpanelController();
         $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
@@ -411,7 +441,7 @@ final class AdminpanelControllerTest extends TestCase
             ], JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $controller->saveAction($request, $configManager, $translator);
+        $response = $controller->saveAction($request, $configManager, $translator, $hardFallbackExportService);
 
         self::assertSame(
             [
@@ -442,6 +472,8 @@ final class AdminpanelControllerTest extends TestCase
 
         $translator = $this->createMock(Translator::class);
         $translator->expects(self::never())->method('trans');
+        $hardFallbackExportService = $this->createMock(HardFallbackExportService::class);
+        $hardFallbackExportService->expects(self::never())->method('synchronizeAfterConfigSave');
 
         $controller = new AdminpanelController();
         $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
@@ -463,7 +495,7 @@ final class AdminpanelControllerTest extends TestCase
             ], JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $controller->saveAction($request, $configManager, $translator);
+        $response = $controller->saveAction($request, $configManager, $translator, $hardFallbackExportService);
 
         self::assertSame(
             [
@@ -485,6 +517,8 @@ final class AdminpanelControllerTest extends TestCase
 
         $translator = $this->createMock(Translator::class);
         $translator->expects(self::never())->method('trans');
+        $hardFallbackExportService = $this->createMock(HardFallbackExportService::class);
+        $hardFallbackExportService->expects(self::never())->method('synchronizeAfterConfigSave');
 
         $controller = new AdminpanelController();
         $configManager = new MaintenanceConfigManager($settingsStore, $legacyLoader);
@@ -494,7 +528,7 @@ final class AdminpanelControllerTest extends TestCase
             ], JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $controller->saveAction($request, $configManager, $translator);
+        $response = $controller->saveAction($request, $configManager, $translator, $hardFallbackExportService);
 
         self::assertSame(
             [

@@ -1,0 +1,48 @@
+# Beispiel fuer Nginx im server-Kontext.
+# Anpassen:
+# - __PUBLIC_ROOT__ auf den absoluten Pfad des public/-Verzeichnisses
+# - Session-Cookie-Name statt PHPSESSID, falls abweichend
+# - zusaetzliche erlaubte IPs
+
+location = /_maintenance/maintenance.html {
+    alias __PUBLIC_ROOT__/_maintenance/maintenance.html;
+}
+
+location = /_maintenance/error.html {
+    alias __PUBLIC_ROOT__/_maintenance/error.html;
+}
+
+location ^~ /_maintenance/runtime/ {
+    return 404;
+}
+
+set $cmf_maintenance_block 0;
+set $cmf_session_flag "";
+
+if ($cookie_PHPSESSID ~ "^[A-Za-z0-9,-]+$") {
+    set $cmf_session_flag "__PUBLIC_ROOT__/_maintenance/runtime/session-$cookie_PHPSESSID.flag";
+}
+
+if (-f __PUBLIC_ROOT__/_maintenance/runtime/maintenance-active.flag) {
+    set $cmf_maintenance_block 1;
+}
+
+if ($remote_addr = 127.0.0.1) {
+    set $cmf_maintenance_block 0;
+}
+
+# Beispiel fuer eine zusaetzliche statische IP-Ausnahme.
+if ($remote_addr = 10.0.0.5) {
+    set $cmf_maintenance_block 0;
+}
+
+if (-f $cmf_session_flag) {
+    set $cmf_maintenance_block 0;
+}
+
+error_page 500 502 504 /_maintenance/error.html;
+error_page 503 /_maintenance/maintenance.html;
+
+if ($cmf_maintenance_block = 1) {
+    return 503;
+}

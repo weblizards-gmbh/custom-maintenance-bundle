@@ -74,6 +74,8 @@ Im aktuellen Stand lassen sich insbesondere diese Bereiche konfigurieren:
 - `frontend.indication_upcoming.de` und `frontend.indication_current.de` für die Texte geplanter bzw. aktueller Hinweise
 - `frontend.more.de` für die Beschriftung des optionalen Mehr-Links
 - `frontend.fulltimeformat.de` für das Ausgabeformat von Datum und Uhrzeit
+- `hard_fallback.maintenance_document` und `hard_fallback.error_document` für die im Admin-Panel ausgewählten Pimcore-Quell-Documents der harten HTML-Fallback-Seiten
+- `hard_fallback_runtime.directory` und `hard_fallback_runtime.allowed_ips` in YAML für das Runtime-Verzeichnis und zusätzliche statische Ausnahmen der harten Pimcore-Maintenance
 - `pimcore.show_info`, `pimcore.show_info_from`, `pimcore.planned.from`, `pimcore.planned.to`, `pimcore.document` für den nativen Pimcore-Sonderfall
 - `custom.<token>.active`, `custom.<token>.temporary_active`, `custom.<token>.fixed`, `custom.<token>.description`, `custom.<token>.show_info`, `custom.<token>.show_info_from`, `custom.<token>.planned`, `custom.<token>.document` für jede eigene Maintenance-Art
 
@@ -91,7 +93,15 @@ Im Admin-UI werden ungültige Zeitangaben inzwischen bereits vor dem Speichern a
 - dieselbe Validierungslogik gilt auch für den Pimcore-Sondereintrag
 - das Admin-Panel enthält zusätzlich einen Diagnose-Bereich, der den aktuellen Formularstand gegen einen frei gewählten Simulationszeitpunkt auswertet, ohne etwas zu speichern
 
-Die fachliche Trennung zwischen eigentlicher Maintenance-Schaltlogik, Hinweis-Logik und der Semantik von `fixed` ist unter [docs/switching_logic.md](docs/switching_logic.md) beschrieben.
+Die fachliche Trennung zwischen eigentlicher Maintenance-Schaltlogik, Hinweis-Logik und der Semantik von `fixed` ist unter [docs/switching_logic.md](docs/switching_logic.md) beschrieben. Die autarke Webserver-Fallback-Ebene für harte Maintenance- und Fehlerseiten ist separat unter [docs/hard_fallback_pages.md](docs/hard_fallback_pages.md) dokumentiert.
+Für die native Pimcore-Voll-Maintenance ist dort nun auch die technische Richtung festgehalten: Die harte Umschaltung soll reloadfrei über Markerdateien erfolgen; Apache- und Nginx-Snippets bleiben statische Betriebs-Konfiguration und werden nicht zur Laufzeit umgeschrieben.
+
+Für den initialen Startzustand liefert das Bundle bereits zwei autarke HTML-Artefakte unter `src/CustomMaintenanceBundle/Resources/install/fallback/maintenance.html` und `src/CustomMaintenanceBundle/Resources/install/fallback/error.html` mit.
+Für die spätere redaktionelle Pflege der harten Fallback-Seiten liefert das Bundle zusätzlich zwei Pimcore-Templates unter `src/CustomMaintenanceBundle/Resources/views/fallback/maintenance_document.html.twig` und `src/CustomMaintenanceBundle/Resources/views/fallback/error_document.html.twig` mit. Die zugehörigen Documents werden bewusst nicht automatisch angelegt, sondern manuell erstellt und anschließend im Admin-Panel als Quelle ausgewählt.
+Sobald ein konfiguriertes Quell-Document gespeichert oder aktualisiert wird, exportiert das Bundle dessen veröffentlichten Stand automatisch in das statische Zielartefakt. Dasselbe gilt bei einer Rekonfiguration der Quellzuordnung im Admin-Panel. Ist keine Quelle konfiguriert, fehlt das Document oder ist es unveröffentlicht, bleibt das zuletzt gültige Artefakt unverändert bestehen.
+Wichtig für den Laufzeitbetrieb: Der PHP-/Pimcore-Prozess benötigt Schreibrechte auf das Zielverzeichnis der statischen Artefakte. Bei den Standardpfaden betrifft das insbesondere `public/_maintenance/`. Fehlen diese Rechte, kann kein Export stattfinden. In diesem Fall können die Zielpfade alternativ per YAML auf einen bereits beschreibbaren Pfad umkonfiguriert werden.
+Für die native Pimcore-Voll-Maintenance schreibt das Bundle zusätzlich Runtime-Artefakte nach `public/_maintenance/runtime/`: `maintenance-active.flag`, optional `session-<session-id>.flag` und `state.json`.
+Als Ausgangspunkt für den Betrieb liegen zusätzlich Beispiel-Snippets unter `src/CustomMaintenanceBundle/Resources/install/fallback/apache-hard-fallback.conf.dist` und `src/CustomMaintenanceBundle/Resources/install/fallback/nginx-hard-fallback.conf.dist` bei.
 
 Neue Custom-Maintenance-Arten starten mit konservativen Defaults:
 
@@ -183,13 +193,21 @@ weblizards_custom_maintenance:
   notice_templates:
     upcoming: '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig'
     current: '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig'
+  hard_fallback_targets:
+    maintenance: '%kernel.project_dir%/public/_maintenance/maintenance.html'
+    error: '%kernel.project_dir%/public/_maintenance/error.html'
+  hard_fallback_runtime:
+    directory: '%kernel.project_dir%/public/_maintenance/runtime'
+    allowed_ips:
+      - '10.0.0.5'
+      - '10.0.0.6/32'
 ```
 
 Wichtig dabei:
 
 - Diese YAML-Konfiguration betrifft die statische Bundle-Konfiguration, nicht die inhaltlichen Maintenance-Daten.
 - Die eigentlichen Maintenance-Daten unter `frontend`, `pimcore` und `custom` werden weiterhin im Settings Store beziehungsweise aus dem Legacy-Fallback geladen.
-- `services.yml` im Bundle verdrahtet diese konfigurierten Werte nur noch in den `StatusService`.
+- `services.yml` im Bundle verdrahtet diese konfigurierten Werte in die betroffenen Services.
 
 ### Pflege der Konfiguration
 
@@ -248,7 +266,7 @@ Wichtig zur Deaktivierung:
 - ist eine offene Zeitsteuerung ohne `bis` bereits angelaufen, beendet ein zulässiger technischer Abschalt-Impuls diese offene Phase, indem der aktuelle Zeitpunkt als Ende gesetzt wird
 - dadurch bleibt offene Zeitsteuerung operativ beendbar, ohne einen separaten technischen Deaktivierungs-Override einzuführen
 
-Die fachliche Bedeutung von `fixed`, die Trennung zwischen Admin-UI, Zeitsteuerung und technischen Schaltpfaden sowie die geplante Schärfung der Schaltlogik sind in [docs/switching_logic.md](docs/switching_logic.md) dokumentiert.
+Die fachliche Bedeutung von `fixed`, die Trennung zwischen Admin-UI, Zeitsteuerung und technischen Schaltpfaden sowie die geplante Schärfung der Schaltlogik sind in [docs/switching_logic.md](docs/switching_logic.md) dokumentiert. Die geplante harte HTML-Fallback-Ebene für Voll-Maintenance und Webserver-Fehlerfälle steht in [docs/hard_fallback_pages.md](docs/hard_fallback_pages.md).
 
 Beispiel:
 

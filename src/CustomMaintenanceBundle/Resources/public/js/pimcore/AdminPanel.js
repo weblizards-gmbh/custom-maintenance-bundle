@@ -125,6 +125,44 @@ custommaintenance.AdminPanel = Class.create({
                     },
                     {
                         xtype: 'fieldset',
+                        title: this.translateWithFallback("custommaintenance.hard_fallback", "Harte Fallback-Seiten"),
+                        collapsible: true,
+                        collapsed: false,
+                        autoHeight: true,
+                        defaults: {
+                            labelWidth: 250
+                        },
+                        items: [
+                            {
+                                xtype: "displayfield",
+                                value: this.translateWithFallback(
+                                    "custommaintenance.hard_fallback_help",
+                                    "Waehlen Sie je ein Pimcore-Document als redaktionelle Quelle fuer die harte Maintenance-Seite und die harte Fehlerseite. Die automatische Erzeugung der statischen Artefakte folgt in einem spaeteren Schritt."
+                                ),
+                                cls: "x-form-display-field"
+                            },
+                            this.createDocumentSelectorField(
+                                "hard_fallback_maintenance_document",
+                                this.translateWithFallback("custommaintenance.hard_fallback_maintenance_document", "Maintenance-Quell-Document"),
+                                this.data["hard_fallback"] ? this.data["hard_fallback"]["maintenance_document"] : null
+                            ),
+                            this.createDocumentSelectorField(
+                                "hard_fallback_error_document",
+                                this.translateWithFallback("custommaintenance.hard_fallback_error_document", "Fehler-Quell-Document"),
+                                this.data["hard_fallback"] ? this.data["hard_fallback"]["error_document"] : null
+                            ),
+                            {
+                                xtype: "displayfield",
+                                value: this.translateWithFallback(
+                                    "custommaintenance.hard_fallback_template_hint",
+                                    "Beispiel-Templates liegen im Bundle unter Resources/views/fallback/. Die zugehoerigen Pimcore-Documents werden bewusst nicht automatisch angelegt."
+                                ),
+                                cls: "x-form-display-field"
+                            }
+                        ]
+                    },
+                    {
+                        xtype: 'fieldset',
                         title: this.translateWithFallback("custommaintenance.diagnosis", "Diagnose"),
                         collapsible: true,
                         collapsed: false,
@@ -829,6 +867,123 @@ custommaintenance.AdminPanel = Class.create({
             message,
             "error"
         );
+    },
+
+    createDocumentSelectorField: function(name, fieldLabel, documentConfig) {
+        var normalizedConfig = documentConfig || {};
+        var displayValue = normalizedConfig["path"] ? normalizedConfig["path"] : "";
+        var documentId = normalizedConfig["id"] ? String(normalizedConfig["id"]) : "";
+        var displayId = name + "_display";
+        var idFieldName = name + "_id";
+        var pathFieldName = name + "_path";
+
+        return {
+            xtype: "fieldcontainer",
+            fieldLabel: fieldLabel,
+            layout: "hbox",
+            items: [
+                {
+                    xtype: "hidden",
+                    name: idFieldName,
+                    value: documentId
+                },
+                {
+                    xtype: "textfield",
+                    id: displayId,
+                    name: pathFieldName,
+                    value: displayValue,
+                    width: 530,
+                    editable: false,
+                    cls: "input_drop_target",
+                    listeners: {
+                        render: function (el) {
+                            new Ext.dd.DropZone(el.getEl(), {
+                                ddGroup: "element",
+                                getTargetFromEvent: function () {
+                                    return el.getEl();
+                                },
+                                onNodeOver: function (target, dd, e, data) {
+                                    var record = data.records[0];
+                                    if (record && record.data && record.data.elementType === "document") {
+                                        return Ext.dd.DropZone.prototype.dropAllowed;
+                                    }
+
+                                    return Ext.dd.DropZone.prototype.dropNotAllowed;
+                                },
+                                onNodeDrop: function (target, dd, e, data) {
+                                    var record = data.records[0];
+                                    var droppedData = record ? record.data : null;
+
+                                    if (!droppedData || droppedData.elementType !== "document") {
+                                        return false;
+                                    }
+
+                                    this.applyDocumentSelection(name, {
+                                        id: droppedData.id,
+                                        path: droppedData.path
+                                    });
+
+                                    return true;
+                                }.bind(this)
+                            });
+                        }.bind(this)
+                    }
+                },
+                {
+                    xtype: "button",
+                    iconCls: "pimcore_icon_search",
+                    style: "margin-left: 5px",
+                    handler: function () {
+                        pimcore.helpers.itemselector(false, function (selection) {
+                            this.applyDocumentSelection(name, {
+                                id: selection.id,
+                                path: selection.fullpath
+                            });
+                        }.bind(this), {
+                            type: ["document"]
+                        });
+                    }.bind(this)
+                },
+                {
+                    xtype: "button",
+                    iconCls: "pimcore_icon_open",
+                    style: "margin-left: 5px",
+                    handler: function () {
+                        var form = this.layout.getForm();
+                        var pathField = form.findField(pathFieldName);
+
+                        if (pathField && pathField.getValue()) {
+                            pimcore.helpers.openDocumentByPath(pathField.getValue());
+                        }
+                    }.bind(this)
+                },
+                {
+                    xtype: "button",
+                    iconCls: "pimcore_icon_delete",
+                    style: "margin-left: 5px",
+                    handler: function () {
+                        this.applyDocumentSelection(name, {
+                            id: "",
+                            path: ""
+                        });
+                    }.bind(this)
+                }
+            ]
+        };
+    },
+
+    applyDocumentSelection: function(name, documentConfig) {
+        var form = this.layout.getForm();
+        var idField = form.findField(name + "_id");
+        var pathField = form.findField(name + "_path");
+
+        if (idField) {
+            idField.setValue(documentConfig && documentConfig["id"] ? String(documentConfig["id"]) : "");
+        }
+
+        if (pathField) {
+            pathField.setValue(documentConfig && documentConfig["path"] ? documentConfig["path"] : "");
+        }
     },
 
     removeCustomMaintenance: function (token, fieldset) {

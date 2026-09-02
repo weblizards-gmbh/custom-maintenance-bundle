@@ -35,6 +35,19 @@ final class ConfigurationTest extends TestCase
             '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig',
             $config['notice_templates']['current']
         );
+        self::assertSame(
+            '%kernel.project_dir%/public/_maintenance/maintenance.html',
+            $config['hard_fallback_targets']['maintenance']
+        );
+        self::assertSame(
+            '%kernel.project_dir%/public/_maintenance/error.html',
+            $config['hard_fallback_targets']['error']
+        );
+        self::assertSame(
+            '%kernel.project_dir%/public/_maintenance/runtime',
+            $config['hard_fallback_runtime']['directory']
+        );
+        self::assertSame([], $config['hard_fallback_runtime']['allowed_ips']);
     }
 
     public function testExtensionLoadsBundleServicesAndStoresResolvedConfigParameter(): void
@@ -46,10 +59,18 @@ final class ConfigurationTest extends TestCase
 
         self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\Config'));
         self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\Service\\StatusService'));
+        self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\EventSubscriber\\HardFallbackDocumentSubscriber'));
+        self::assertTrue($container->hasDefinition('Weblizards\\CustomMaintenanceBundle\\EventSubscriber\\HardFallbackMaintenanceModeSubscriber'));
         $statusServiceDefinition = $container->getDefinition('Weblizards\\CustomMaintenanceBundle\\Service\\StatusService');
+        $hardFallbackSubscriberDefinition = $container->getDefinition('Weblizards\\CustomMaintenanceBundle\\EventSubscriber\\HardFallbackDocumentSubscriber');
         self::assertTrue($statusServiceDefinition->isPublic());
+        self::assertTrue($hardFallbackSubscriberDefinition->isAutoconfigured());
         self::assertTrue($container->hasParameter('weblizards_custom_maintenance.notice_template.upcoming'));
         self::assertTrue($container->hasParameter('weblizards_custom_maintenance.notice_template.current'));
+        self::assertTrue($container->hasParameter('weblizards_custom_maintenance.hard_fallback_target.maintenance'));
+        self::assertTrue($container->hasParameter('weblizards_custom_maintenance.hard_fallback_target.error'));
+        self::assertTrue($container->hasParameter('weblizards_custom_maintenance.hard_fallback_runtime.directory'));
+        self::assertTrue($container->hasParameter('weblizards_custom_maintenance.hard_fallback_runtime.allowed_ips'));
         self::assertSame(
             '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig',
             $container->getParameter('weblizards_custom_maintenance.notice_template.upcoming')
@@ -57,6 +78,22 @@ final class ConfigurationTest extends TestCase
         self::assertSame(
             '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig',
             $container->getParameter('weblizards_custom_maintenance.notice_template.current')
+        );
+        self::assertSame(
+            '%kernel.project_dir%/public/_maintenance/maintenance.html',
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_target.maintenance')
+        );
+        self::assertSame(
+            '%kernel.project_dir%/public/_maintenance/error.html',
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_target.error')
+        );
+        self::assertSame(
+            '%kernel.project_dir%/public/_maintenance/runtime',
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_runtime.directory')
+        );
+        self::assertSame(
+            [],
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_runtime.allowed_ips')
         );
         self::assertSame(
             '%weblizards_custom_maintenance.notice_template.upcoming%',
@@ -75,6 +112,14 @@ final class ConfigurationTest extends TestCase
                     'upcoming' => '@WeblizardsCustomMaintenance/partials/indicateupcoming.html.twig',
                     'current' => '@WeblizardsCustomMaintenance/partials/indicatecurrent.html.twig',
                 ],
+                'hard_fallback_targets' => [
+                    'maintenance' => '%kernel.project_dir%/public/_maintenance/maintenance.html',
+                    'error' => '%kernel.project_dir%/public/_maintenance/error.html',
+                ],
+                'hard_fallback_runtime' => [
+                    'directory' => '%kernel.project_dir%/public/_maintenance/runtime',
+                    'allowed_ips' => [],
+                ],
             ],
             $container->getParameter('weblizards_custommaintenance.config')
         );
@@ -91,6 +136,14 @@ final class ConfigurationTest extends TestCase
                     'upcoming' => '@App/custom/upcoming.html.twig',
                     'current' => '@App/custom/current.html.twig',
                 ],
+                'hard_fallback_targets' => [
+                    'maintenance' => '/srv/www/maintenance.html',
+                    'error' => '/srv/www/error.html',
+                ],
+                'hard_fallback_runtime' => [
+                    'directory' => '/srv/www/runtime',
+                    'allowed_ips' => ['10.0.0.5', '10.0.0.6/32'],
+                ],
             ],
         ], $container);
 
@@ -101,6 +154,22 @@ final class ConfigurationTest extends TestCase
         self::assertSame(
             '@App/custom/current.html.twig',
             $container->getParameter('weblizards_custom_maintenance.notice_template.current')
+        );
+        self::assertSame(
+            '/srv/www/maintenance.html',
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_target.maintenance')
+        );
+        self::assertSame(
+            '/srv/www/error.html',
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_target.error')
+        );
+        self::assertSame(
+            '/srv/www/runtime',
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_runtime.directory')
+        );
+        self::assertSame(
+            ['10.0.0.5', '10.0.0.6/32'],
+            $container->getParameter('weblizards_custom_maintenance.hard_fallback_runtime.allowed_ips')
         );
     }
 

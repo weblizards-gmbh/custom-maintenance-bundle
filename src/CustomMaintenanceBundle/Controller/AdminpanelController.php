@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Serializer\Encoder\JsonDecode;
 use Symfony\Component\Serializer\Encoder\JsonEncoder;
+use Weblizards\CustomMaintenanceBundle\Service\HardFallbackExportService;
 use Weblizards\CustomMaintenanceBundle\Service\MaintenanceConfigManager;
 use Weblizards\CustomMaintenanceBundle\Service\StatusService;
 
@@ -28,12 +29,18 @@ class AdminpanelController extends UserAwareController
     }
 
     #[Route("/save")]
-    public function saveAction(Request $request, MaintenanceConfigManager $configManager, Translator $translator): JsonResponse
+    public function saveAction(
+        Request $request,
+        MaintenanceConfigManager $configManager,
+        Translator $translator,
+        HardFallbackExportService $hardFallbackExportService
+    ): JsonResponse
     {
         try {
             $decoder = new JsonDecode();
             $values = $decoder->decode($request->get('data'), JsonEncoder::FORMAT, ['json_decode_associative' => true]);
-            $configManager->saveFromAdminPayload($values);
+            $result = $configManager->saveFromAdminPayload($values);
+            $hardFallbackExportService->synchronizeAfterConfigSave($result['hard_fallback']);
 
             $response_data = [
                 'success' => true,

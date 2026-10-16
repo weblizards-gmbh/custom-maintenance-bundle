@@ -6,15 +6,11 @@ namespace Weblizards\CustomMaintenanceBundle;
 
 use Pimcore\Extension\Bundle\AbstractPimcoreBundle;
 use Pimcore\Extension\Bundle\Installer\InstallerInterface;
-use Pimcore\Extension\Bundle\PimcoreBundleAdminClassicInterface;
 use Pimcore\Extension\Bundle\PimcoreBundleInterface;
-use Pimcore\Extension\Bundle\Traits\BundleAdminClassicTrait;
-use Symfony\Component\HttpKernel\Bundle\Bundle;
 use Weblizards\CustomMaintenanceBundle\Tools\Installer;
 
-class WeblizardsCustomMaintenanceBundle extends AbstractPimcoreBundle implements PimcoreBundleAdminClassicInterface
+class WeblizardsCustomMaintenanceBundle extends AbstractPimcoreBundle implements PimcoreBundleInterface
 {
-    use BundleAdminClassicTrait;
 
     public function getNiceName(): string
     {
